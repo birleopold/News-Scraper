@@ -4,7 +4,8 @@
   <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
   <meta name="csrf-token" content="{{ csrf }}">
   <title>Uganda Business Watch · Your opportunity desk</title>
-  <link rel="stylesheet" href="/static/style.css"><script src="/static/app.js" defer></script>
+  <meta name="app-build" content="{{ build }}">
+  <link rel="stylesheet" href="/static/style.css?v={{ build }}"><script src="/static/app.js?v={{ build }}" defer></script>
 </head>
 <body>
 <aside class="sidebar">

@@ -27,6 +27,9 @@ def create_app(database=None):
                       TRUSTED_HOSTS=['127.0.0.1','localhost','[::1]'])
     init_db(app.config['DATABASE'])
     with connect(app.config['DATABASE']) as db: seed(db)
+    # Version tag for /static URLs so browsers fetch the script and styles that match this page.
+    static=Path(app.static_folder)
+    build=format(int(max((static/f).stat().st_mtime for f in ('app.js','style.css'))),'x')
 
     @app.before_request
     def csrf():
@@ -49,7 +52,7 @@ def create_app(database=None):
     @app.get('/')
     def home():
         session.setdefault('csrf',secrets.token_hex(32))
-        return render_template('index.html',csrf=session['csrf'])
+        return render_template('index.html',csrf=session['csrf'],build=build)
 
     def rows():
         with connect(app.config['DATABASE']) as db:

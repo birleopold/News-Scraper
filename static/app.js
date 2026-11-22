@@ -2,6 +2,17 @@
 const $ = s => document.querySelector(s);
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const state = {view:'all', category:'', discovered:'', page:1, pages:1, items:[], overview:null, sequence:0};
+// If the app was updated while its server kept running, the page and this script can
+// disagree. Say so plainly instead of failing on missing elements.
+const REQUIRED=['cards','status','show-hidden','source-alerts','alert-form','alert-mode','alert-hint','last-alert','test-alert'];
+if(REQUIRED.some(id=>!document.getElementById(id))){
+  const note=document.createElement('div');note.setAttribute('role','alert');
+  note.innerHTML='<strong>Uganda Business Watch was updated while it was running.</strong> Close the app’s window (or press Ctrl+C where it runs), start it again with <code>run.py</code> or “Start Business Watch”, then reload this page.';
+  // Styles are set through the DOM because the page's security policy blocks inline style attributes.
+  Object.assign(note.style,{padding:'16px 20px',background:'#fbeed5',color:'#5c3d0b',borderBottom:'1px solid #e8cf9f',font:'15px/1.5 Segoe UI,Arial,sans-serif',position:'fixed',top:'0',left:'0',right:'0',zIndex:'50',boxShadow:'0 4px 16px #0002'});
+  document.body.prepend(note);
+  throw new Error('Page and script versions differ; restart the app.');
+}
 const csrf = $('meta[name="csrf-token"]').content;
 let toastTimer, pollTimer, searchTimer;
 function toast(message) { $('#toast').textContent=message; $('#toast').hidden=false; clearTimeout(toastTimer); toastTimer=setTimeout(()=>$('#toast').hidden=true,4500); }
