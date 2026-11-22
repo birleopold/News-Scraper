@@ -404,3 +404,45 @@ def test_automatic_backups_are_daily_and_pruned(tmp_path):
         for b in auto_backups(path): os.utime(b,(time.time()-90000,)*2)
         time.sleep(0.01); maybe_auto_backup(path,keep=2)
     assert len(auto_backups(path))==2 and manual.exists()                      # pruned autos, kept manual
+
+
+def test_wordpress_cards_with_data_links():
+    from ugwatch.collectors import collect_html
+    html=b'''<html><body>
+    <div class="w3eden"><div class="media-body"><h3 class="media-heading">Invitation to bid for photocopying and printing services</h3>
+      <div class="text-small"><i></i> 195KB <i></i> Oct 02, 2026 <div class="mt-3"><a class="wpdm-download-link" href="#" data-downloadurl="https://era.example/download/itb-printing/?wpdmdl=1">Download</a></div></div></div></div>
+    <table><tr data-href="https://uegcl.example/bids-and-tenders/hydraulic-truck/"><td><img alt=""></td>
+      <td><h4 class="pub-title">Supply and Delivery of a Hydraulic Truck and Gate Control Spares</h4><p>The Entity invites sealed bids; grant funding applies.</p></td></tr>
+      <tr data-href="https://uegcl.example/about/"><td><h4>About the company and its history</h4></td></tr></table>
+    </body></html>'''
+    class Response:
+        content=html; url='https://era.example/procurement/'; headers={'Content-Type':'text/html'}
+    class Client:
+        def get(self,url):return Response()
+    items,_=collect_html(Client(),{'name':'Test','url':'https://era.example/procurement/','kind':'html'})
+    by_url={i['url']:i for i in items}
+    era=by_url['https://era.example/download/itb-printing/?wpdmdl=1']
+    assert era['title'].startswith('Invitation to bid') and era['published_at'].startswith('2026-10-02')
+    truck=by_url['https://uegcl.example/bids-and-tenders/hydraulic-truck/']
+    assert truck['category']=='Tender' and 'sealed bids' in truck['excerpt']
+    assert 'https://uegcl.example/about/' not in by_url
+
+
+def test_worldbank_notices_for_uganda():
+    from ugwatch.collectors import collect_worldbank
+    c=JsonClient({'procnotices':{'total':2,'procnotices':[
+        {'id':'OP00482384','notice_type':'Invitation for Bids','noticedate':'19-Nov-2026','submission_deadline_date':'2026-12-03T00:00:00Z','submission_deadline_time':'11:00',
+         'bid_description':'Supply of ICT equipment for government systems','contact_organization':'NITA-U','project_name':'Uganda Digital Acceleration Project','bid_reference_no':'UG-NITA-U-580461-GO-RFB','procurement_method_name':'Request for Bids'},
+        {'id':'OP00482990','notice_type':'Contract Award','noticedate':'20-Nov-2026','submission_deadline_date':'2026-10-01T00:00:00Z','bid_description':'Printing services for school calendars'},
+        {'id':'../bad','notice_type':'Invitation for Bids','bid_description':'Injected id'}]}})
+    items,_=collect_worldbank(c,{'kind':'worldbank'})
+    assert 'project_ctry_name_exact=Uganda' in c.urls[0] and len(items)==2
+    bid,award=items
+    assert bid['url'].endswith('/procurement-detail/OP00482384') and bid['deadline']=='2026-12-03' and bid['deadline_origin']=='official'
+    assert '11:00 local time' in bid['deadline_evidence'] and bid['reference']=='UG-NITA-U-580461-GO-RFB' and bid['category']=='Tender'
+    assert award['deadline'] is None and award['excerpt'].startswith('Contract Award') and award['published_at'].startswith('2026-11-20')
+
+
+def test_worldbank_award_is_a_result(app,client):
+    insert(app,url='https://projects.worldbank.org/x',title='Printing services',excerpt='Contract Award · Ministry',deadline=None,deadline_origin='feed')
+    assert client.get('/api/notices?status=results').json['total']==1

@@ -166,6 +166,35 @@ def collect_egp(client,source):
     return items, f'{len(items)} of {total} current table records read. Deadline times must be checked in the original notice.'
 
 
+CARD_DATE=re.compile(r'\b(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]* \d{1,2}, \d{4}\b')
+
+
+def card_items(soup,base,source,seen,limit):
+    """Notices whose link lives in a data attribute, as in common WordPress plugins:
+    table rows with data-href (e.g. UEGCL) and Download Manager cards with
+    data-downloadurl (e.g. ERA). The title is the nearest h2-h4 in the card."""
+    items=[]
+    for el in soup.select('[data-href],[data-downloadurl]'):
+        if len(items)>=limit: break
+        link=canonical(urljoin(base,el.get('data-downloadurl') or el.get('data-href')))
+        if urlsplit(link).scheme not in ('http','https') or link in seen or link==canonical(base): continue
+        card=el; heading=el.find(['h2','h3','h4'])
+        for _ in range(5):
+            if heading or card.parent is None: break
+            card=card.parent; heading=card.find(['h2','h3','h4'])
+        title=clean(heading.get_text(' ',strip=True)) if heading else ''
+        # Card text often mentions funding ("grant") or the bank; only use it to confirm relevance.
+        kind=category(title) or ('Tender' if category(clean(card.get_text(' ',strip=True))[:600]) else None)
+        if len(title)<24 or not kind: continue
+        seen.add(link)
+        snippet=card.find('p')
+        dated=CARD_DATE.search(card.get_text(' ',strip=True))
+        items.append(dict(url=link,title=title[:300],category=kind,publisher=source['name'],deadline_origin='listing',
+                          excerpt=clean(snippet.get_text(' ',strip=True))[:700] if snippet else 'Discovered on '+source['name']+'. Open the original notice for full requirements and dates.',
+                          published_at=kampala_iso(dated.group(0)) if dated else None))
+    return items
+
+
 def collect_html(client,source):
     response=client.get(source['url'])
     if 'application/pdf' in response.headers.get('Content-Type','') or urlsplit(response.url).path.lower().endswith('.pdf'):
@@ -199,6 +228,7 @@ def collect_html(client,source):
         excerpt=clean(snippet.get_text(' ',strip=True))[:700] if snippet else 'Discovered on '+source['name']+'. Open the original notice for full requirements and dates.'
         items.append(dict(url=link,title=title,excerpt=excerpt,category=kind,publisher=source['name'],deadline_origin='listing'))
         if len(items)>=100: break
+    items+=card_items(soup,response.url,source,seen,100-len(items))
     if not items: raise ValueError('No readable notice links found. Page may use JavaScript, images, or a changed layout; manual review required.')
     return items, f'{len(items)} matching links indexed from one listing page. Dates require original-notice review.'
 
@@ -369,7 +399,34 @@ def friendly_error(exc):
     return exc
 
 
-ADAPTERS={'ppda':collect_ppda,'bou':collect_bou,'newvision_tenders':collect_newvision,'newvision_notices':collect_newvision}
+WORLDBANK_API='https://search.worldbank.org/api/v2/procnotices'
+
+
+def collect_worldbank(client,source):
+    """World Bank-financed procurement in Uganda from the Bank's open procurement API."""
+    payload=get_json(client,WORLDBANK_API+'?'+urlencode({'format':'json','rows':200,'srt':'noticedate','order':'desc','project_ctry_name_exact':'Uganda'}))
+    rows=payload.get('procnotices') if isinstance(payload,dict) else None
+    if not isinstance(rows,list): raise ValueError('World Bank returned an unexpected response; adapter needs review.')
+    items=[]
+    for row in rows:
+        notice_id=clean(row.get('id')); title=clean(row.get('bid_description')); kind_name=clean(row.get('notice_type'))
+        if not notice_id or not title or not re.fullmatch(r'[A-Z0-9]+',notice_id): continue
+        org=clean(row.get('contact_organization'))
+        award='award' in kind_name.lower()
+        deadline=None if award else (iso_date(row.get('submission_deadline_date')) or '')[:10] or None
+        time_note=clean(row.get('submission_deadline_time'))
+        evidence=f'World Bank notice submission deadline: {deadline}'+(f' {time_note} local time' if time_note and time_note!='00:00' else '')+'.' if deadline else ''
+        details=[kind_name,org,clean(row.get('project_name')),clean(row.get('procurement_method_name'))]
+        items.append(dict(url=f'https://projects.worldbank.org/en/projects-operations/procurement-detail/{notice_id}',
+                          title=title[:300],excerpt=' · '.join(d for d in details if d)[:700],organization=org,
+                          reference=clean(row.get('bid_reference_no')),
+                          category='Bid' if award else (category(kind_name+' '+title) if category(kind_name+' '+title) in ('Tender','Grant','Auction') else 'Tender'),
+                          publisher='World Bank procurement',published_at=kampala_iso(row.get('noticedate')),
+                          deadline=deadline,deadline_evidence=evidence,deadline_origin='official' if deadline else 'feed'))
+    return items, f'{len(items)} latest World Bank-financed notices for Uganda (bids, expressions of interest and contract awards) from the public procurement API.'
+
+
+ADAPTERS={'worldbank':collect_worldbank,'ppda':collect_ppda,'bou':collect_bou,'newvision_tenders':collect_newvision,'newvision_notices':collect_newvision}
 
 
 def collect(source):

@@ -58,7 +58,7 @@ Do not run multiple web server processes against this workspace.
 
 ## Sources and coverage
 
-The registry includes 18 sources:
+The registry includes 26 sources:
 
 - Uganda eGP public procurement and disposal tables, with page-by-page reading of
   up to 1,000 current records per table and explicit submission dates. Slow
@@ -75,6 +75,10 @@ The registry includes 18 sources:
 - Daily Monitor tender listing and Bing News discovery for Monitor stories.
 - New Vision business headlines and discovery.
 - The Independent RSS, KCCA procurement, NWSC notices and URA.
+- World Bank-financed procurement in Uganda (public procurement API; contract
+  awards are listed under Results & awards).
+- Ministry of Finance, NSSF, UBOS, UCC, Uganda Development Bank, ERA and UEGCL
+  procurement pages. See ROADMAP.md for sources checked but not added, and why.
 - Additional Bing News discovery for Ugandan auctions, bids, grants and business.
 
 Source links were checked on 22 November 2026. Useful primary starting points:

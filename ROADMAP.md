@@ -35,6 +35,10 @@ Each goal says how to tell whether it is being met.
 
 - Official portals: eGP (procurement), PPDA bid invitations with reference numbers
   and bid details for open notices, Bank of Uganda procurement documents, KCCA, NWSC.
+- Added after source research (22 Nov 2026): World Bank-financed procurement in
+  Uganda (open data API), Ministry of Finance, NSSF, UBOS, UCC, Uganda Development
+  Bank, ERA and UEGCL. The generic reader now understands common WordPress listing
+  plugins (Download Manager cards, clickable table rows).
 - Newspapers: New Vision tenders, notices and business; The Independent; news
   discovery for Daily Monitor and Ugandan business topics.
 - Current-first feed with Results & awards filter; watchlist; notes; saved items;
@@ -47,9 +51,25 @@ Each goal says how to tell whether it is being met.
 1. **Start automatically at sign-in** (Windows Task Scheduler) so fetching and
    alerts do not depend on remembering to start the app.
 2. **Deadlines from advert PDFs** for open New Vision notices, marked for review.
-3. **More official sources**, each checked for access and usefulness first:
-   UNRA, UETCL, UIA, and NGO/donor tender listings.
+3. **Retry the unreachable official sites** from the research table below, and
+   check donor sources: AfDB (its page lists policies more than notices) and UNGM
+   (UN agencies; its notice search needs a form-based adapter).
 4. **Weekly digest** in the dashboard: what is new, what closes next week.
+
+## Source research (22 Nov 2026)
+
+Checked with the app's own client (robots.txt respected). Added sources are above.
+
+| Candidate | Result | Notes |
+|-----------|--------|-------|
+| World Bank procurement API | Added | ~200 latest Uganda notices; awards go to Results & awards. |
+| Ministry of Finance, NSSF, UBOS, UCC, UDB | Added | Plain listing pages; 1–8 notices each. |
+| ERA, UEGCL | Added | Needed the new WordPress card support. |
+| UETCL | Not added | Listing is loaded by JavaScript; no public feed found. |
+| UNRA, Makerere tenders, OPM, NITA-U | Not added | Timed out from this connection; retry later. |
+| UIA | Not added | Site's HTTPS certificate setup is broken (TLS error). |
+| UNBS | Not added | robots.txt disallows automated access. |
+| Ministry of Health | Not added | Domain did not resolve. |
 
 ## Later / ideas
 
