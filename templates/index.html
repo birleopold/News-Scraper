@@ -1,0 +1,62 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="csrf-token" content="{{ csrf }}">
+  <title>Uganda Business Watch · Your opportunity desk</title>
+  <link rel="stylesheet" href="/static/style.css"><script src="/static/app.js" defer></script>
+</head>
+<body>
+<aside class="sidebar">
+  <a class="brand" href="/"><span class="brand-mark">W<span></span></span><span>UGANDA<br><strong>BUSINESS WATCH</strong></span></a>
+  <div class="workspace"><span class="avatar">UG</span><div>Your opportunity desk<small>Personal workspace</small></div></div>
+  <div class="nav-label">WORKSPACE</div>
+  <nav aria-label="Main navigation">
+    <button class="nav active" data-view="all"><span>▦</span>Overview</button>
+    <button class="nav" data-view="unread"><span>▤</span>Unread notices</button>
+    <button class="nav" data-view="saved"><span>☆</span>Saved opportunities <b id="saved-count">0</b></button>
+    <button class="nav" data-view="matches"><span>◎</span>Keyword matches <b id="match-count">0</b></button>
+    <button class="nav" data-view="sources"><span>◉</span>Sources & coverage</button>
+    <button class="nav" data-view="settings"><span>⚙</span>Watchlist & settings</button>
+  </nav>
+  <div class="sidebar-note"><span class="small-label">LESS READING. MORE OPPORTUNITY.</span><p>The business news that matters, in one place.</p><span class="flag"><i></i><i></i><i></i></span></div>
+  <div class="local-status"><span class="dot"></span>Local workspace <small>Africa / Kampala · EAT</small></div>
+</aside>
+<main>
+  <header class="topbar"><div>Workspace <span>/</span> <strong id="breadcrumb">Overview</strong></div><div class="today" id="today"></div></header>
+  <div class="page">
+    <section class="page-heading"><div><div class="eyebrow">YOUR UGANDA BUSINESS BRIEF</div><h1 id="page-title">Stay ahead of the opportunity.</h1><p id="page-description">Tenders, auctions and business updates. Gathered for you.</p></div><button class="primary" id="fetch"><span>⟳</span> Fetch latest</button></section>
+    <div id="run-banner" class="run-banner" role="status" hidden></div>
+    <div id="notice-view">
+      <section class="stats" aria-label="Summary">
+        <button class="stat" data-stat="all"><span>IN YOUR NEWS DESK <i>▤</i></span><strong id="stat-total">0</strong><small>Notices & business stories</small></button>
+        <button class="stat" data-stat="new"><span>DISCOVERED TODAY <i>✦</i></span><strong id="stat-new">0</strong><small>New additions to your database</small></button>
+        <button class="stat" data-stat="open"><span>UPCOMING DEADLINES <i>◷</i></span><strong id="stat-open">0</strong><small>Official or manually reviewed dates</small></button>
+        <button class="stat warm" data-stat="week"><span>CLOSING IN 7 DAYS <i>!</i></span><strong id="stat-week">0</strong><small>Worth a closer look</small></button>
+      </section>
+      <div class="desk-grid"><section class="feed">
+        <div class="section-heading"><h2 id="feed-title">Your opportunity feed</h2><a id="export" class="text-button" href="/api/export">↓ Export CSV</a></div>
+        <div class="tabs" role="group" aria-label="Categories"><button class="selected" data-category="">All updates</button><button data-category="Tender">Tenders</button><button data-category="Auction">Auctions</button><button data-category="Bid">Bids</button><button data-category="Grant">Grants</button><button data-category="Public notice">Notices</button><button data-category="Business">Business</button></div>
+        <form id="filters" class="filters">
+          <label class="search"><span>⌕</span><input id="search" type="search" placeholder="Search opportunities, companies, keywords…" aria-label="Search notices"></label>
+          <div class="filter-row"><select id="status" aria-label="Deadline status"><option value="">All statuses</option value="open">Upcoming / due today</option><option value="week">Closing within 7 days</option><option value="review">Needs review</option><option value="expired">Expired</option></select><select id="source" aria-label="Source"><option value="">All sources</option></select><select id="sort" aria-label="Sort"><option value="latest">Latest published</option><option value="deadline">Deadline first</option></select></div>
+          <details class="date-filter"><summary>Publication date range</summary><div><label>From <input id="from" type="date"></label><label>To <input id="to" type="date"></label><button type="button" id="clear-filters" class="text-button">Reset filters</button></div></details>
+        </form>
+        <div class="results-heading"><span id="results-label">Loading your desk…</span><span>Dates in EAT</span></div>
+        <div id="cards" aria-live="polite"></div>
+        <div class="pagination"><button class="secondary" id="prev">Previous</button><span id="page-info"></span><button class="secondary" id="next">Next</button></div>
+      </section>
+      <aside class="right-rail">
+        <section class="deadline-panel"><div class="section-heading"><h2>On the horizon</h2><span class="calendar-icon">◷</span></div><p class="muted">The next dates to keep an eye on.</p><div id="deadlines"></div><p class="fine-print">Confirm the exact closing time and any amendments in the original notice.</p></section>
+        <section class="coverage-panel"><span class="eyebrow">A WIDER VIEW</span><h2>Many sources.<br>One clear picture.</h2><p>Local newspapers, official procurement portals and news discovery.</p><div class="source-logos"><strong>Daily Monitor</strong><strong>NEW VISION</strong><strong>eGP Uganda</strong><strong>The Independent</strong></div><button class="text-button" data-view="sources">View source health</button></section>
+        <section class="review-panel"><h3>Know before you act</h3><p><b id="review-count">0</b> notices need deadline review. An undated notice is never counted as an open opportunity.</p></section>
+      </aside></div>
+    </div>
+    <section id="sources-view" hidden><div class="info-banner">Coverage is best effort. Blocked pages, scanned adverts, paywalls and unindexed notices may be missing. News discovery is a search index, not a direct newspaper feed.</div><div id="source-list" class="source-list"></div><section class="settings-card"><h2>Add a source</h2><p>Expand coverage with a public RSS/Atom feed, notice listing, or text PDF.</p><form id="add-source" class="add-source"><label>Name<input name="name" required maxlength="150" placeholder="Publisher or organisation"></label><label>Public URL<input name="url" type="url" required placeholder="https://…"></label><label>Format<select name="kind"><option value="rss">RSS / Atom</option><option value="html">HTML listing / PDF</option></select></label><button class="primary">Add source</button></form></section><h2 class="history-heading">Recent fetches</h2><div id="run-history"></div></section>
+    <section id="settings-view" hidden><div class="settings-grid"><section class="settings-card"><span class="eyebrow">MAKE IT RELEVANT</span><h2>Your keyword watchlist</h2><p>Match words or phrases against titles, excerpts and organisations. Try “construction”, “ICT”, “vehicles” or your district.</p><form id="add-word" class="inline-form"><input name="term" required maxlength="80" placeholder="Add a keyword or phrase" aria-label="Keyword"><button class="primary">Add keyword</button></form><div id="watchwords" class="word-list"></div><p class="fine-print">Matches appear in the sidebar. This version does not send email or SMS alerts.</p></section><section class="settings-card"><span class="eyebrow">KEEP YOUR DESK UPDATED</span><h2>Automatic fetching</h2><p>Fetches run while the Python application and this computer are running. You can close the browser.</p><form id="schedule-form"><label class="checkbox"><input type="checkbox" id="auto-fetch"> Automatically check enabled sources</label><label>Check every<select id="interval"><option value="30">30 minutes</option><option value="60">1 hour</option><option value="180">3 hours</option><option value="360">6 hours</option><option value="720">12 hours</option><option value="1440">24 hours</option></select></label><button class="primary">Save schedule</button></form></section></div><section class="settings-card"><h2>Your records stay with you</h2><p>SQLite stores first-seen dates, publication dates, source links, deadline evidence, saved items and your notes. Refreshes preserve your annotations. Export your current filtered view from the opportunity feed.</p><p class="fine-print">For unattended operation after a restart, see README.md for the Windows Task Scheduler setup. This is a personal local application; internet hosting needs authentication and a production server.</p></section></section>
+    <footer>UGANDA BUSINESS WATCH <span>Made for a better-informed business day.</span></footer>
+  </div>
+</main>
+<dialog id="detail"><div class="dialog-top"><span class="eyebrow">OPPORTUNITY DETAILS</span><button id="close-detail" aria-label="Close details">×</button></div><div id="detail-content"></div></dialog>
+<div id="toast" role="status" hidden></div>
+</body></html>

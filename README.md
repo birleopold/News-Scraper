@@ -42,13 +42,23 @@ Do not run multiple web server processes against this workspace.
 
 ## Sources and coverage
 
-The initial registry includes 17 sources:
+The registry includes 18 sources:
 
 - Uganda eGP public procurement and disposal tables, with page-by-page reading of
-  up to 1,000 current records per table and explicit submission dates.
+  up to 1,000 current records per table and explicit submission dates. Slow
+  responses are retried once before the source is marked as needing attention.
+- PPDA Government Procurement Portal: all bid invitations for the current financial
+  year (July–June) with official submission deadlines, read from the portal's public
+  data feed. Still-open notices (up to 80 per run) also get the procurement reference,
+  method, bid security, bid document price and bid-opening time and place.
+- Bank of Uganda procurement: bidding documents, addenda, pre-bid minutes, bid
+  opening records, best-evaluated-bidder notices and disposals from last year onward
+  (links go to the PDFs).
+- New Vision tenders and notices from the newspaper's opportunities section (latest
+  50 of each); generic headings such as "Bid notice" are labelled with the advertiser.
 - Daily Monitor tender listing and Bing News discovery for Monitor stories.
-- New Vision tender listing, directly readable business headlines, and discovery.
-- The Independent RSS, KCCA procurement, NWSC notices, PPDA, URA and Bank of Uganda.
+- New Vision business headlines and discovery.
+- The Independent RSS, KCCA procurement, NWSC notices and URA.
 - Additional Bing News discovery for Ugandan auctions, bids, grants and business.
 
 Source links were checked on 22 November 2026. Useful primary starting points:
@@ -58,13 +68,14 @@ Source links were checked on 22 November 2026. Useful primary starting points:
 [KCCA](https://www.kcca.go.ug/tenders),
 [NWSC](https://www.nwsc.co.ug/notices-2/).
 
-Coverage is **not exhaustive**. Sources can change or be unavailable. The first
-successful full run collected 111 unique records, including 49 eGP procurements.
-Direct Daily Monitor requests returned HTTP 403; the New Vision tender, PPDA and
-Bank of Uganda pages did not expose readable notice links; URA disconnected.
-Those entries remain visible with an explanation and a manual source link.
-New Vision business and Monitor discovery worked separately. eGP's disposal table
-and New Vision discovery returned no records; that is distinguished from an error.
+Coverage is **not exhaustive**. Sources can change or be unavailable. A full run
+on 22 November 2026 held 781 records, including 387 PPDA bid invitations, 184 Bank
+of Uganda documents and 100 New Vision opportunities. Daily Monitor refuses
+automated requests (HTTP 403) and URA closes the connection; the app reports this
+in plain language and does not work around blocks, so open those two manually.
+The New Vision tenders section had not been updated since July 2026, while its
+notices section was current. eGP's disposal table and New Vision discovery returned
+no records; that is distinguished from an error.
 
 RSS/discovery returns only the publisher/search provider's available result window.
 HTML sources inspect one listing page, up to 100 relevant links; they do not crawl
@@ -109,8 +120,8 @@ For fetching without the dashboard:
 To run after signing into Windows, create a Task Scheduler task using:
 
 - Program: the absolute path to `.venv\Scripts\pythonw.exe` in this folder.
-- Arguments: `"C:\Users\LEOSOFT\Desktop\NEWS BY KEYWORD\run.py"`.
-- Start in: `C:\Users\LEOSOFT\Desktop\NEWS BY KEYWORD`.
+- Arguments: the absolute path to `run.py` in quotes, e.g. `"C:\path\to\NEWS BY KEYWORD\run.py"`.
+- Start in: this folder, e.g. `C:\path\to\NEWS BY KEYWORD`.
 - Trigger: at logon; configure **Do not start a new instance** if already running.
 
 No Windows scheduled task has been installed automatically. Keep the computer
@@ -154,5 +165,3 @@ escaping. Network availability remains an independent live integration check.
 Main code: `ugwatch/collectors.py` (source adapters), `db.py` (SQLite), `service.py`
 (fetch orchestration and scheduler), `app.py` (HTTP API), `templates/` and `static/`
 (dashboard). Extend `SOURCES` in `ugwatch/sources.py` to add bundled sources.
-#   N e w s - S c r a p e r  
- 

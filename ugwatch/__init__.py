@@ -1,0 +1,1 @@
+"""Uganda business opportunity monitor."""
