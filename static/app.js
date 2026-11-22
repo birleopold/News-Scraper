@@ -20,14 +20,16 @@ function params() {
   for(const id of ['search','status','source','sort','from','to']) if($('#'+id).value) p.set(id==='search'?'q':id,$('#'+id).value);
   return p;
 }
-function badgeStatus(r) { return `<span class="status ${r.status==='Needs review'?'review':r.status==='Expired'?'expired':''}">${esc(r.status)}${r.effective_deadline?' · '+dateLabel(r.effective_deadline,true):''}</span>`; }
+function badgeStatus(r) { return `<span class="status ${r.status==='Needs review'?'review':['Expired','Result'].includes(r.status)?'expired':''}">${esc(r.status)}${r.effective_deadline?' · '+dateLabel(r.effective_deadline,true):''}</span>`; }
 function card(r) {
   return `<article class="notice-card ${r.read?'is-read':''}"><div class="card-top"><span class="badge ${esc(r.category)}">${esc(r.category)}</span><span>${esc(r.publisher || r.source_name)}</span>${r.source_kind==='search'?'<span class="discovery">DISCOVERY</span>':''}<button class="save ${r.saved?'saved':''}" data-save="${r.id}" aria-label="${r.saved?'Unsave':'Save'} notice" aria-pressed="${!!r.saved}">${r.saved?'★':'☆'}</button></div><button class="card-title" data-detail="${r.id}">${esc(r.title)}</button><p>${esc(r.excerpt)}</p>${r.matches.length?`<div class="match-label">◎ Matches: ${r.matches.map(esc).join(', ')}</div>`:''}<div class="card-bottom">${badgeStatus(r)}<span>${r.published_at?'Published '+dateLabel(r.published_at,true):'Publication date unknown'}</span></div></article>`;
 }
 async function loadNotices() {
   const seq=++state.sequence; const data=await api('/api/notices?'+params()); if(seq!==state.sequence)return;
   state.items=data.items; state.pages=data.pages;
-  $('#results-label').textContent=`${data.total.toLocaleString()} ${data.total===1?'update':'updates'}${state.category?' in '+state.category.toLowerCase():''}`;
+  $('#results-label').textContent=`${data.total.toLocaleString()} ${$('#status').value==='current'?'current ':''}${data.total===1?'update':'updates'}${state.category?' in '+state.category.toLowerCase():''}`;
+  $('#show-hidden').hidden=!data.hidden;
+  $('#show-hidden').textContent=data.hidden?`· ${data.hidden.toLocaleString()} closed, older or result ${data.hidden===1?'record':'records'} hidden. Show all`:'';
   $('#cards').innerHTML=data.items.map(card).join('') || `<div class="empty"><div class="empty-icon">▤</div><h3>${state.overview?.stats.total?'No matching updates':'Your next opportunity starts here.'}</h3><p>${state.overview?.stats.total?'Try another keyword or reset your filters.':'Fetch the latest sources to build your personal business brief.'}</p><p>Real source records will appear here. No sample notices are included.</p></div>`;
   $('#page-info').textContent=`Page ${state.page} of ${data.pages}`;
   $('#prev').disabled=state.page<=1; $('#next').disabled=state.page>=data.pages;
@@ -59,6 +61,8 @@ async function loadOverview() {
 async function refresh(){await loadOverview();if(!['sources','settings'].includes(state.view))await loadNotices();}
 async function navigate(view){
   state.view=view;state.page=1;state.discovered='';
+  // Saved items stay visible after they close; other feeds start on current opportunities.
+  if(!['sources','settings'].includes(view))$('#status').value=view==='saved'?'':'current';
   const titles={all:['Stay ahead of the opportunity.','Tenders, auctions and business updates. Gathered for you.','Overview'],saved:['Your saved opportunities.','A shortlist for the business moves that matter.','Saved opportunities'],unread:['A fresh perspective.','Catch up on notices you haven’t reviewed yet.','Unread notices'],matches:['News that fits your interests.','Updates matching your personal keyword watchlist.','Keyword matches'],sources:['A clear view of your sources.','See what is working, what needs attention, and expand your coverage.','Sources & coverage'],settings:['Make this desk your own.','Choose your interests and how often to check for updates.','Watchlist & settings']};
   const t=titles[view];$('#page-title').textContent=t[0];$('#page-description').textContent=t[1];$('#breadcrumb').textContent=t[2];
   document.querySelectorAll('.nav').forEach(b=>b.classList.toggle('active',b.dataset.view===view));
@@ -90,7 +94,8 @@ $('#fetch').onclick=async()=>{try{$('#fetch').disabled=true;await api('/api/fetc
 $('#filters').onsubmit=e=>e.preventDefault();
 for(const id of ['status','source','sort','from','to'])$('#'+id).onchange=()=>{state.page=1;loadNotices().catch(e=>toast(e.message))};
 $('#search').oninput=()=>{clearTimeout(searchTimer);searchTimer=setTimeout(()=>{state.page=1;loadNotices().catch(e=>toast(e.message))},300)};
-$('#clear-filters').onclick=()=>{for(const id of ['search','status','source','from','to'])$('#'+id).value='';$('#sort').value='latest';state.page=1;state.discovered='';loadNotices().catch(e=>toast(e.message))};
+$('#show-hidden').onclick=()=>{$('#status').value='';state.page=1;loadNotices().catch(e=>toast(e.message))};
+$('#clear-filters').onclick=()=>{for(const id of ['search','source','from','to'])$('#'+id).value='';$('#status').value='current';$('#sort').value='latest';state.page=1;state.discovered='';loadNotices().catch(e=>toast(e.message))};
 $('#prev').onclick=()=>{state.page--;loadNotices().catch(e=>toast(e.message))};$('#next').onclick=()=>{state.page++;loadNotices().catch(e=>toast(e.message))};
 $('#close-detail').onclick=()=>$('#detail').close();
 $('#add-word').onsubmit=async e=>{e.preventDefault();try{await api('/api/watchwords','POST',{term:e.target.term.value});e.target.reset();await refresh();toast('Keyword added.');}catch(error){toast(error.message)}};

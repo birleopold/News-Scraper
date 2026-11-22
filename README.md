@@ -28,7 +28,12 @@ Do not run multiple web server processes against this workspace.
    excerpts, organisations and procurement references. Unknown publication dates
    appear after dated records in the default sort and are excluded from date-range
    searches.
-3. **Upcoming / due today** includes only official eGP deadlines or dates you have
+   The feed opens on **Current: open & recent**: notices with an upcoming official
+   or reviewed deadline, plus undated notices and news first published in the last
+   45 days. Expired notices, older undated items and **Results & awards** (best
+   evaluated bidder notices, bid-opening records, pre-bid minutes) are hidden; the
+   feed says how many and offers **Show all**. Saved opportunities always show all.
+3. **Upcoming / due today** includes only official eGP/PPDA deadlines or dates you have
    manually reviewed. A future date does not prove that a procurement remains
    active: check amendments, cancellations, conditions and closing time at source.
 4. Open a notice, follow its original link, save it, mark it read, and add notes.

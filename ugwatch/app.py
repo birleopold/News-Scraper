@@ -1,6 +1,7 @@
 import csv
 import io
 import os
+import re
 import secrets
 from datetime import date, datetime, timedelta
 from pathlib import Path
@@ -12,6 +13,12 @@ from .collectors import CATEGORIES, public_url
 from .db import connect, init_db, EAT
 from .service import start_run
 from .sources import seed
+
+
+RECENT_DAYS=45
+STATUS_FILTERS=('','current','open','week','review','expired','results')
+OUTCOME=re.compile(r'best[ -]evaluated[ -]bidder|\bBEB\b|\bminutes\b|bid[ -]opening[ -]record|record of (?:the )?bid[ -]opening|'
+                   r'notice of (?:intention to )?award|contract award|\bawarded\b',re.I)
 
 
 def create_app(database=None):
@@ -51,6 +58,7 @@ def create_app(database=None):
             records=[dict(r) for r in db.execute('SELECT n.*,s.name AS source_name,s.kind AS source_kind FROM notices n JOIN sources s ON n.source_id=s.id ORDER BY n.published_at IS NULL,n.published_at DESC,n.first_seen DESC,n.id DESC')]
             terms=[r['term'] for r in db.execute('SELECT term FROM watchwords')]
         today=datetime.now(EAT).date()
+        recent_from=(today-timedelta(days=RECENT_DAYS)).isoformat()
         for r in records:
             r['effective_deadline']=r['user_deadline'] if r['deadline_reviewed'] else r['deadline']
             d=date.fromisoformat(r['effective_deadline']) if r['effective_deadline'] else None
@@ -58,23 +66,31 @@ def create_app(database=None):
             known=r['deadline_reviewed'] or r['deadline_origin']=='official'
             r['status']=('Expired' if d<today else 'Due today' if d==today else 'Upcoming') if d and known else 'Needs review'
             if r['category']=='Business' and not d: r['status']='News'
+            # Award notices, bid-opening records and minutes report on a process; they are not opportunities.
+            if r['status'] not in ('Upcoming','Due today') and not r['deadline_reviewed'] and OUTCOME.search(r['title']+' '+r['excerpt']):
+                r['status']='Result'
+            r['recent']=((r['published_at'] or r['first_seen'] or '')[:10])>=recent_from
+            r['current']=r['status'] in ('Upcoming','Due today') or (r['status'] in ('Needs review','News') and r['recent'])
             hay=(r['title']+' '+r['excerpt']+' '+r['organization']).lower()
             r['matches']=[t for t in terms if t.lower() in hay]
         return records
 
-    def filtered(records):
+    def filtered(records,status=None):
         q=request.args.get('q','').lower().strip()
         for key in ('from','to'):
             value=request.args.get(key)
             if value:
                 try: date.fromisoformat(value)
                 except ValueError: abort(400,'Invalid date filter.')
+        status=request.args.get('status','') if status is None else status
+        if status not in STATUS_FILTERS: abort(400,'Invalid status filter.')
         result=[]
         for r in records:
             if q and q not in ' '.join(str(r[k] or '') for k in ('title','excerpt','organization','reference','publisher')).lower(): continue
             if request.args.get('category') and r['category']!=request.args['category']: continue
             if request.args.get('source') and str(r['source_id'])!=request.args['source']: continue
-            status=request.args.get('status','')
+            if status=='current' and not r['current']: continue
+            if status=='results' and r['status']!='Result': continue
             if status=='open' and r['status'] not in ('Upcoming','Due today'): continue
             if status=='review' and r['status']!='Needs review': continue
             if status=='expired' and r['status']!='Expired': continue
@@ -96,8 +112,10 @@ def create_app(database=None):
     def notices():
         try: page=max(1,int(request.args.get('page',1)))
         except ValueError: abort(400,'Invalid page.')
-        result=filtered(rows())
-        return jsonify(items=result[(page-1)*24:page*24],total=len(result),page=page,pages=max(1,(len(result)+23)//24))
+        records=rows(); result=filtered(records)
+        # Tell the dashboard how much the Current view hides, so nothing silently disappears.
+        hidden=len(filtered(records,''))-len(result) if request.args.get('status')=='current' else 0
+        return jsonify(items=result[(page-1)*24:page*24],total=len(result),hidden=hidden,page=page,pages=max(1,(len(result)+23)//24))
 
     @app.get('/api/overview')
     def overview():
@@ -108,9 +126,9 @@ def create_app(database=None):
             runs=[dict(r) for r in db.execute('SELECT * FROM runs ORDER BY id DESC LIMIT 10')]
             words=[dict(r) for r in db.execute('SELECT * FROM watchwords ORDER BY term')]
             settings=dict(db.execute('SELECT key,value FROM settings').fetchall())
-        return jsonify(stats=dict(total=len(records),new_today=sum(r['first_seen'][:10]==today for r in records),
+        return jsonify(stats=dict(total=len(records),current=sum(r['current'] for r in records),new_today=sum(r['first_seen'][:10]==today for r in records),
                                   upcoming=len(upcoming),closing_week=sum(r['days_left']<=7 for r in upcoming),
-                                  review=sum(r['status']=='Needs review' for r in records),saved=sum(r['saved'] for r in records),matches=sum(bool(r['matches']) for r in records)),
+                                  review=sum(r['status']=='Needs review' and r['recent'] for r in records),saved=sum(r['saved'] for r in records),matches=sum(bool(r['matches']) for r in records)),
                        deadlines=sorted(upcoming,key=lambda r:r['effective_deadline'])[:6],sources=sources,runs=runs,watchwords=words,settings=settings,today=today,categories=CATEGORIES)
 
     def body():

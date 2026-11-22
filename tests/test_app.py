@@ -253,3 +253,30 @@ def test_blocked_site_gets_plain_message(monkeypatch):
     monkeypatch.setattr(collectors,'collect_html',blocked)
     with pytest.raises(ValueError,match='refused automated access'):
         collectors.collect({'kind':'html','url':'https://example.com'})
+
+
+def test_current_view_hides_closed_stale_and_result_records(app,client):
+    old=(datetime.now(EAT).date()-timedelta(days=120)).isoformat()
+    insert(app)                                                                          # official, upcoming
+    insert(app,url='https://example.com/fresh-undated',deadline=None,deadline_origin='listing')
+    insert(app,url='https://example.com/stale-undated',deadline=None,deadline_origin='listing',published_at=old)
+    insert(app,url='https://example.com/expired',deadline='2020-01-01')
+    insert(app,url='https://example.com/beb',title='Best Evaluated Bidder Notice for cleaning services',deadline=None,deadline_origin='listing')
+    insert(app,url='https://example.com/minutes',title='Bank tender',excerpt='Bank of Uganda · Prebid Minutes · May 2026',deadline=None,deadline_origin='listing')
+    current=client.get('/api/notices?status=current').json
+    assert {r['url'] for r in current['items']}=={'https://example.com/notice','https://example.com/fresh-undated'}
+    assert current['hidden']==4
+    assert client.get('/api/notices?status=results').json['total']==2
+    assert client.get('/api/notices').json['total']==6 and client.get('/api/notices').json['hidden']==0
+    assert client.get('/api/notices?status=review').json['total']==2   # stale undated still reviewable on request
+    stats=client.get('/api/overview').json['stats']
+    assert stats['current']==2 and stats['review']==1
+    assert client.get('/api/notices?status=bogus').status_code==400
+
+
+def test_reviewed_deadline_overrides_result_label(app,client):
+    id=insert(app,url='https://example.com/award',title='Notice of award and re-tender',deadline=None,deadline_origin='listing')
+    future=(datetime.now(EAT).date()+timedelta(days=5)).isoformat()
+    client.patch(f'/api/notices/{id}',json={'user_deadline':future},headers={'X-CSRF-Token':client.csrf})
+    row=client.get('/api/notices?status=current').json['items'][0]
+    assert row['status']=='Upcoming'
