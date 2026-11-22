@@ -5,6 +5,12 @@ public notices and business stories. Flask serves the responsive dashboard;
 SQLite keeps records on this computer. No account, paid API key or AI service is
 needed.
 
+**Goals:** find Ugandan opportunities in time to act on them, show what can still
+be acted on first, never claim a notice is open without an official or reviewed
+date, warn loudly when a source breaks, and keep your data private and backed up.
+See [ROADMAP.md](ROADMAP.md) for how each goal is measured, what is done, what is
+next and the known gaps.
+
 ## Start on Windows
 
 Open PowerShell in this folder:
@@ -149,7 +155,9 @@ Database: `data/uganda_watch.sqlite3`. The `data/` folder is ignored by Git. Use
 ```
 
 This uses SQLite's online backup API and writes a timestamped backup under
-`data/backups/`. To restore, stop the application, retain a backup of the current
+`data/backups/`. The app also makes an **automatic backup** after the first fetch
+each day (`uganda_watch_auto_*.sqlite3`) and keeps the latest 14; manual backups
+are never deleted. To restore, stop the application, retain a backup of the current
 database, and replace it with the selected backup (including clearing stale
 SQLite WAL/SHM sidecars while the server is stopped).
 
@@ -173,5 +181,12 @@ normalisation, eGP pagination, search/watchlists, CSRF, private URLs and CSV for
 escaping. Network availability remains an independent live integration check.
 
 Main code: `ugwatch/collectors.py` (source adapters), `db.py` (SQLite), `service.py`
-(fetch orchestration and scheduler), `app.py` (HTTP API), `templates/` and `static/`
-(dashboard). Extend `SOURCES` in `ugwatch/sources.py` to add bundled sources.
+(fetch orchestration, source health and scheduler), `status.py` (open/closed/result
+rules), `alerts.py` (desktop notifications), `backup.py` (backups), `app.py` (HTTP
+API), `templates/` and `static/` (dashboard). Extend `SOURCES` in
+`ugwatch/sources.py` to add bundled sources. GitHub Actions runs the tests on
+Windows and Linux for every push (`.github/workflows/tests.yml`).
+
+A source is marked **Needs attention** when it errors, returns nothing after
+previously returning records, or returns under a fifth of its last good count
+(when that was 10 or more). The Sources menu shows a badge with the number.

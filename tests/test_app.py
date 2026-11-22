@@ -360,3 +360,47 @@ def test_fetch_run_triggers_alert(app,monkeypatch):
     monkeypatch.setattr(alerts,'send_toast',lambda *a:(sent.append(a),(True,'ok'))[1])
     service.start_run(path,background=False)
     assert sent and sent[0][0]=='1 new open opportunity'
+
+
+def test_source_health_flags_silent_breakage():
+    from ugwatch.service import health
+    assert health(5,0,None,'ok')==('OK','ok')
+    assert health(0,0,None,'none')==('Empty','none')                         # never had results: just empty
+    status,message=health(0,40,'2026-11-20T10:00:00+03:00','0 links.')
+    assert status=='Needs attention' and 'found 40 records before (last good result 2026-11-20)' in message
+    assert health(3,50,None,'x')[0]=='Needs attention'                       # sharp drop
+    assert health(8,9,None,'x')[0]=='OK'                                      # small sources may vary
+
+
+def test_quiet_source_counts_as_needing_attention(app,monkeypatch):
+    path=app.config['DATABASE']
+    with connect(path) as db:
+        db.execute('UPDATE sources SET enabled=0 WHERE id!=1')
+        db.execute('UPDATE sources SET last_good_count=12 WHERE id=1')
+    monkeypatch.setattr(service,'collect',lambda s:([],'0 links found.'))
+    service.start_run(path,background=False)
+    with connect(path) as db:
+        src=db.execute('SELECT status,message,last_good_count FROM sources WHERE id=1').fetchone()
+        assert src['status']=='Needs attention' and src['last_good_count']==12
+        assert db.execute('SELECT failed,state FROM runs').fetchone()[:]==(1,'partial')
+    monkeypatch.setattr(service,'collect',lambda s:([dict(url=f'https://example.com/back{i}',title='Tender for road works',category='Tender') for i in range(3)],'ok'))
+    service.start_run(path,background=False)
+    with connect(path) as db:
+        assert db.execute('SELECT status,last_good_count FROM sources WHERE id=1').fetchone()[:]==('OK',3)
+
+
+def test_automatic_backups_are_daily_and_pruned(tmp_path):
+    import os,time
+    from ugwatch.backup import maybe_auto_backup,auto_backups,make_backup
+    from ugwatch.db import init_db
+    path=tmp_path/'watch.sqlite3'; init_db(path)
+    manual=make_backup(path)
+    first=maybe_auto_backup(path)
+    assert first and maybe_auto_backup(path) is None                           # not again within the day
+    with connect(first) as db: assert db.execute('SELECT count(*) FROM settings').fetchone()[0]>=2
+    for i,old in enumerate(auto_backups(path)):
+        os.utime(old,(time.time()-90000,time.time()-90000))
+    for _ in range(3):
+        for b in auto_backups(path): os.utime(b,(time.time()-90000,)*2)
+        time.sleep(0.01); maybe_auto_backup(path,keep=2)
+    assert len(auto_backups(path))==2 and manual.exists()                      # pruned autos, kept manual

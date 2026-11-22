@@ -64,6 +64,12 @@ def init_db(path):
         db.execute("INSERT OR IGNORE INTO settings VALUES ('interval_minutes','180')")
         db.execute("INSERT OR IGNORE INTO settings VALUES ('auto_fetch','1')")
         db.execute("INSERT OR IGNORE INTO settings VALUES ('alert_mode','matches')")
+        # Remember each source's last non-empty result so a silent breakage can be flagged.
+        columns={r['name'] for r in db.execute('PRAGMA table_info(sources)')}
+        if 'last_good_count' not in columns:
+            db.execute('ALTER TABLE sources ADD COLUMN last_good_count INTEGER NOT NULL DEFAULT 0')
+            db.execute('ALTER TABLE sources ADD COLUMN last_good_at TEXT')
+            db.execute('UPDATE sources SET last_good_count=item_count,last_good_at=last_success WHERE item_count>0')
 
 
 def upsert_notice(db, source_id, item):

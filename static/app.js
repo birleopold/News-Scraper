@@ -45,6 +45,8 @@ function renderWords(o) {
 async function loadOverview() {
   const o=await api('/api/overview');state.overview=o;
   for(const [id,key] of [['total','total'],['new','new_today'],['open','upcoming'],['week','closing_week']]) $('#stat-'+id).textContent=o.stats[key].toLocaleString();
+  const broken=o.sources.filter(s=>s.enabled&&s.status==='Needs attention').length;
+  $('#source-alerts').hidden=!broken;$('#source-alerts').textContent=broken;
   $('#saved-count').textContent=o.stats.saved;$('#match-count').textContent=o.stats.matches;$('#review-count').textContent=o.stats.review;
   $('#today').textContent=new Date(o.today+'T12:00:00+03:00').toLocaleDateString('en-GB',{weekday:'short',day:'numeric',month:'long',year:'numeric',timeZone:'Africa/Kampala'});
   const selected=$('#source').value;

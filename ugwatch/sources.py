@@ -35,4 +35,4 @@ def seed(db):
         if row is None:
             db.execute('INSERT OR IGNORE INTO sources(name,url,kind,group_name) VALUES (?,?,?,?)',(name,url,kind,group))
         elif (row['url'],row['kind'])!=(url,kind) and not db.execute('SELECT 1 FROM sources WHERE url=? AND id<>?',(url,row['id'])).fetchone():
-            db.execute("UPDATE sources SET url=?,kind=?,group_name=?,status='Not checked',message='' WHERE id=?",(url,kind,group,row['id']))
+            db.execute("UPDATE sources SET url=?,kind=?,group_name=?,status='Not checked',message='',last_good_count=0 WHERE id=?",(url,kind,group,row['id']))

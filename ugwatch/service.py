@@ -5,6 +5,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timedelta
 
 from .alerts import notify_run
+from .backup import maybe_auto_backup
 from .collectors import collect
 from .db import connect, now, EAT, upsert_notice
 
@@ -25,6 +26,16 @@ def start_run(path, background=True):
     return run_id,True
 
 
+def health(count,last_good,last_good_at,message):
+    """Status for a source that answered: flag silent breakage instead of reporting a normal 'Empty'."""
+    since=f' (last good result {last_good_at[:10]})' if last_good_at else ''
+    if count==0 and last_good:
+        return 'Needs attention',f'Returned nothing, but found {last_good} records before{since}. The site may have changed its layout or feed; open it to check. '+message
+    if last_good>=10 and count<last_good*0.2:
+        return 'Needs attention',f'Found only {count}, down from {last_good}{since}. The site may have changed; open it to check. '+message
+    return ('OK' if count else 'Empty'),message
+
+
 def fetch_all(path,run_id):
     added=checked=failed=0
     try:
@@ -36,10 +47,14 @@ def fetch_all(path,run_id):
                 source=futures[future]; checked+=1
                 try:
                     items,message=future.result()
+                    status,message=health(len(items),source.get('last_good_count') or 0,source.get('last_good_at'),message)
                     with connect(path) as db:
                         new=sum(upsert_notice(db,source['id'],item) for item in items)
                         db.execute("UPDATE sources SET last_checked=?,last_success=?,status=?,message=?,item_count=? WHERE id=?",
-                                   (now(),now(),'OK' if items else 'Empty',message,len(items),source['id']))
+                                   (now(),now(),status,message,len(items),source['id']))
+                        if items:
+                            db.execute('UPDATE sources SET last_good_count=?,last_good_at=? WHERE id=?',(len(items),now(),source['id']))
+                    if status=='Needs attention': failed+=1
                     added+=new
                 except Exception as exc:
                     failed+=1
@@ -51,6 +66,7 @@ def fetch_all(path,run_id):
         with connect(path) as db:
             db.execute('UPDATE runs SET state=?,finished_at=?,message=? WHERE id=?',('partial' if failed else 'complete',now(),f'{checked} sources checked; {failed} need attention.',run_id))
         if added: notify_run(path,run_id)
+        maybe_auto_backup(path)
     except Exception:
         log.exception('Fetch failed')
         with connect(path) as db:
