@@ -137,15 +137,28 @@ For fetching without the dashboard:
 .\.venv\Scripts\python run.py --fetch
 ```
 
-To run after signing into Windows, create a Task Scheduler task using:
+### Start automatically at sign-in
 
-- Program: the absolute path to `.venv\Scripts\pythonw.exe` in this folder.
-- Arguments: the absolute path to `run.py` in quotes, e.g. `"C:\path\to\NEWS BY KEYWORD\run.py"`.
-- Start in: this folder, e.g. `C:\path\to\NEWS BY KEYWORD`.
-- Trigger: at logon; configure **Do not start a new instance** if already running.
+```powershell
+.\install-autostart.ps1 -StartNow
+```
 
-No Windows scheduled task has been installed automatically. Keep the computer
-awake and connected for scheduled fetching. A crashed fetch remains locked for up
+This creates a per-user Task Scheduler task, **Uganda Business Watch**, that runs
+the app without a window (`pythonw.exe run.py --log-file`) whenever you sign in.
+No administrator rights are needed. The task has no time limit, never starts a
+second copy, keeps running on battery and retries if the app exits unexpectedly.
+`-StartNow` also starts it immediately. Remove it with:
+
+```powershell
+.\uninstall-autostart.ps1
+```
+
+Without a window, the log is written to `data\app.log` (rotated at 1 MB, 3 kept).
+If the app is already running, starting it again (by command, the `.cmd` file or
+the task) just reports the address and exits instead of clashing on the port. To
+stop the windowless copy, end `pythonw.exe` in Task Manager.
+
+Keep the computer awake and connected for scheduled fetching. A crashed fetch remains locked for up
 to two hours; the next attempt marks it interrupted and starts a fresh run. Fetch
 runs and per-source errors are visible in Sources. Retry transient failures with
 Fetch latest; the app never deletes earlier records because a fetch failed.

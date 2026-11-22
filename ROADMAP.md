@@ -48,7 +48,7 @@ Each goal says how to tell whether it is being met.
 
 ## Next
 
-1. **Start automatically at sign-in** (Windows Task Scheduler) so fetching and
+1. **Done:** start automatically at sign-in (`install-autostart.ps1`), so fetching and
    alerts do not depend on remembering to start the app.
 2. **Deadlines from advert PDFs** for open New Vision notices, marked for review.
 3. **Retry the unreachable official sites** from the research table below, and

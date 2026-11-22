@@ -446,3 +446,13 @@ def test_worldbank_notices_for_uganda():
 def test_worldbank_award_is_a_result(app,client):
     insert(app,url='https://projects.worldbank.org/x',title='Printing services',excerpt='Contract Award · Ministry',deadline=None,deadline_origin='feed')
     assert client.get('/api/notices?status=results').json['total']==1
+
+
+def test_second_copy_detects_running_dashboard():
+    import socket
+    from run import already_running
+    with socket.socket() as server:
+        server.bind(('127.0.0.1',0)); server.listen(1)
+        port=server.getsockname()[1]
+        assert already_running(port)
+    assert not already_running(port)
