@@ -3,6 +3,7 @@ import logging
 import threading
 
 from ugwatch.app import create_app
+from ugwatch.db import connect
 from ugwatch.service import scheduler, start_run
 
 
@@ -18,6 +19,9 @@ def main():
         run_id,started=start_run(app.config['DATABASE'],background=False)
         print(f'Fetch run {run_id}: '+('finished; check Sources for results.' if started else 'another fetch is already running.'))
         return
+    # Alerts link back to the dashboard, including when run later with --fetch.
+    with connect(app.config['DATABASE']) as db:
+        db.execute("INSERT OR REPLACE INTO settings VALUES ('dashboard_port',?)",(str(args.port),))
     stop=threading.Event()
     if not args.no_scheduler:
         threading.Thread(target=scheduler,args=(app.config['DATABASE'],stop),daemon=True).start()

@@ -39,8 +39,13 @@ Do not run multiple web server processes against this workspace.
 4. Open a notice, follow its original link, save it, mark it read, and add notes.
    Save notes independently or enter a reviewed deadline. **Use source deadline**
    removes your override. Refreshes preserve your notes and saved/read flags.
-5. Add phrases in **Watchlist & settings** to highlight relevant records. This
-   version provides dashboard matches, not email/SMS/push notifications.
+5. Add phrases in **Watchlist & settings** to highlight relevant records.
+   **Desktop alerts** (same page) show one Windows notification after each fetch
+   that finds something new: either new keyword matches (default; quiet while the
+   watchlist is empty) or any new open opportunity. Clicking it opens the dashboard.
+   Use **Send test alert** to check Windows shows them (Focus/Do not disturb can
+   hide them). Records already in the database are never re-alerted. Alerts need the
+   app or a scheduled `run.py --fetch` to be running; email/SMS are not available.
 6. Export the current filtered view to CSV, including dates, evidence and links.
 7. Add public RSS/Atom feeds, HTML listings or text PDFs in **Sources & coverage**.
    A successful HTTP response alone is not considered successful HTML ingestion.

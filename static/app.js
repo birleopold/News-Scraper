@@ -52,6 +52,10 @@ async function loadOverview() {
   $('#deadlines').innerHTML=o.deadlines.map(r=>`<div class="deadline-item"><div class="deadline-date">${Number(r.effective_deadline.slice(8,10))}<small>${new Date(r.effective_deadline+'T12:00:00').toLocaleDateString('en-GB',{month:'short'})}</small></div><div><button data-detail="${r.id}">${esc(r.title)}</button><p>${r.days_left===0?'Due today':r.days_left+' days away'}</p></div></div>`).join('') || '<p class="muted">Confirmed dates will appear after fetching or reviewing notices.</p>';
   renderSources(o);renderWords(o);
   if(document.activeElement?.closest('#schedule-form')===null){$('#auto-fetch').checked=o.settings.auto_fetch==='1';$('#interval').value=o.settings.interval_minutes;}
+  if(document.activeElement?.closest('#alert-form')===null)$('#alert-mode').value=o.settings.alert_mode||'matches';
+  $('#alert-hint').hidden=!(o.watchwords.length===0&&$('#alert-mode').value==='matches');
+  const last=(o.settings.last_alert||'').split('|');
+  $('#last-alert').textContent=last.length>1?`Last alert: ${dateLabel(last[0],true)} ${new Date(last[0]).toLocaleTimeString('en-GB',{timeZone:'Africa/Kampala',hour:'2-digit',minute:'2-digit'})} · ${last.slice(1).join('|')}`:'No alerts sent yet.';
   const latest=o.runs[0];const banner=$('#run-banner');
   banner.hidden=!latest;
   if(latest){banner.textContent=latest.state==='running'?`Checking sources… ${latest.checked} completed · ${latest.added} new records saved.`:`Last fetch: ${latest.added} new records · ${latest.checked} sources checked${latest.failed?' · '+latest.failed+' need attention. See Sources & coverage.':'.'}`;}
@@ -101,4 +105,10 @@ $('#close-detail').onclick=()=>$('#detail').close();
 $('#add-word').onsubmit=async e=>{e.preventDefault();try{await api('/api/watchwords','POST',{term:e.target.term.value});e.target.reset();await refresh();toast('Keyword added.');}catch(error){toast(error.message)}};
 $('#add-source').onsubmit=async e=>{e.preventDefault();try{await api('/api/sources','POST',Object.fromEntries(new FormData(e.target)));e.target.reset();await refresh();toast('Source added. Fetch latest to check it.');}catch(error){toast(error.message)}};
 $('#schedule-form').onsubmit=async e=>{e.preventDefault();try{await api('/api/settings','PATCH',{auto_fetch:$('#auto-fetch').checked,interval_minutes:Number($('#interval').value)});await loadOverview();toast('Schedule saved.');}catch(error){toast(error.message)}};
+$('#alert-mode').onchange=()=>{$('#alert-hint').hidden=!(state.overview?.watchwords.length===0&&$('#alert-mode').value==='matches')};
+$('#alert-form').onsubmit=async e=>{e.preventDefault();try{await api('/api/alerts','PATCH',{mode:$('#alert-mode').value});await loadOverview();toast('Alert preference saved.');}catch(error){toast(error.message)}};
+$('#test-alert').onclick=async()=>{const b=$('#test-alert');b.disabled=true;try{await api('/api/alerts/test','POST',{});toast('Test alert sent. Look at the bottom-right of your screen.');}catch(error){toast(error.message)}finally{b.disabled=false;await loadOverview().catch(()=>{})}};
+// Alerts open /?view=matches; honour it on first load.
+const startView=new URLSearchParams(location.search).get('view');
+if(['matches','saved','unread'].includes(startView))navigate(startView).catch(()=>{});
 refresh().catch(e=>{toast(e.message);$('#cards').innerHTML='<div class="empty">Could not load your workspace. Check the Python server and reload.</div>'});

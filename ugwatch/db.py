@@ -63,6 +63,7 @@ def init_db(path):
         ''')
         db.execute("INSERT OR IGNORE INTO settings VALUES ('interval_minutes','180')")
         db.execute("INSERT OR IGNORE INTO settings VALUES ('auto_fetch','1')")
+        db.execute("INSERT OR IGNORE INTO settings VALUES ('alert_mode','matches')")
 
 
 def upsert_notice(db, source_id, item):

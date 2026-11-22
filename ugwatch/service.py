@@ -4,6 +4,7 @@ import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timedelta
 
+from .alerts import notify_run
 from .collectors import collect
 from .db import connect, now, EAT, upsert_notice
 
@@ -49,6 +50,7 @@ def fetch_all(path,run_id):
                     db.execute('UPDATE runs SET added=?,checked=?,failed=? WHERE id=?',(added,checked,failed,run_id))
         with connect(path) as db:
             db.execute('UPDATE runs SET state=?,finished_at=?,message=? WHERE id=?',('partial' if failed else 'complete',now(),f'{checked} sources checked; {failed} need attention.',run_id))
+        if added: notify_run(path,run_id)
     except Exception:
         log.exception('Fetch failed')
         with connect(path) as db:

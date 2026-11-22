@@ -1,7 +1,6 @@
 import csv
 import io
 import os
-import re
 import secrets
 from datetime import date, datetime, timedelta
 from pathlib import Path
@@ -9,16 +8,15 @@ from urllib.parse import urlsplit
 
 from flask import Flask, abort, jsonify, render_template, request, session, Response
 
+from .alerts import ALERT_MODES, send_test
 from .collectors import CATEGORIES, public_url
 from .db import connect, init_db, EAT
 from .service import start_run
 from .sources import seed
+from .status import annotate as annotate_status
 
 
-RECENT_DAYS=45
 STATUS_FILTERS=('','current','open','week','review','expired','results')
-OUTCOME=re.compile(r'best[ -]evaluated[ -]bidder|\bBEB\b|\bminutes\b|bid[ -]opening[ -]record|record of (?:the )?bid[ -]opening|'
-                   r'notice of (?:intention to )?award|contract award|\bawarded\b',re.I)
 
 
 def create_app(database=None):
@@ -58,22 +56,7 @@ def create_app(database=None):
             records=[dict(r) for r in db.execute('SELECT n.*,s.name AS source_name,s.kind AS source_kind FROM notices n JOIN sources s ON n.source_id=s.id ORDER BY n.published_at IS NULL,n.published_at DESC,n.first_seen DESC,n.id DESC')]
             terms=[r['term'] for r in db.execute('SELECT term FROM watchwords')]
         today=datetime.now(EAT).date()
-        recent_from=(today-timedelta(days=RECENT_DAYS)).isoformat()
-        for r in records:
-            r['effective_deadline']=r['user_deadline'] if r['deadline_reviewed'] else r['deadline']
-            d=date.fromisoformat(r['effective_deadline']) if r['effective_deadline'] else None
-            r['days_left']=(d-today).days if d else None
-            known=r['deadline_reviewed'] or r['deadline_origin']=='official'
-            r['status']=('Expired' if d<today else 'Due today' if d==today else 'Upcoming') if d and known else 'Needs review'
-            if r['category']=='Business' and not d: r['status']='News'
-            # Award notices, bid-opening records and minutes report on a process; they are not opportunities.
-            if r['status'] not in ('Upcoming','Due today') and not r['deadline_reviewed'] and OUTCOME.search(r['title']+' '+r['excerpt']):
-                r['status']='Result'
-            r['recent']=((r['published_at'] or r['first_seen'] or '')[:10])>=recent_from
-            r['current']=r['status'] in ('Upcoming','Due today') or (r['status'] in ('Needs review','News') and r['recent'])
-            hay=(r['title']+' '+r['excerpt']+' '+r['organization']).lower()
-            r['matches']=[t for t in terms if t.lower() in hay]
-        return records
+        return [annotate_status(r,terms,today) for r in records]
 
     def filtered(records,status=None):
         q=request.args.get('q','').lower().strip()
@@ -203,6 +186,19 @@ def create_app(database=None):
             db.execute("UPDATE settings SET value=? WHERE key='interval_minutes'",(str(interval),))
             db.execute("UPDATE settings SET value=? WHERE key='auto_fetch'",(str(int(data['auto_fetch'])),))
         return jsonify(ok=True)
+
+    @app.patch('/api/alerts')
+    def alert_settings():
+        mode=body().get('mode')
+        if mode not in ALERT_MODES: abort(400,'Choose matches, open or off.')
+        with connect(app.config['DATABASE']) as db:
+            db.execute("INSERT OR REPLACE INTO settings VALUES ('alert_mode',?)",(mode,))
+        return jsonify(ok=True)
+
+    @app.post('/api/alerts/test')
+    def alert_test():
+        ok,message=send_test(app.config['DATABASE'])
+        return jsonify(ok=ok,message=message),(200 if ok else 502)
 
     @app.get('/api/export')
     def export():
