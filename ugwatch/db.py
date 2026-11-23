@@ -70,6 +70,10 @@ def init_db(path):
             db.execute('ALTER TABLE sources ADD COLUMN last_good_count INTEGER NOT NULL DEFAULT 0')
             db.execute('ALTER TABLE sources ADD COLUMN last_good_at TEXT')
             db.execute('UPDATE sources SET last_good_count=item_count,last_good_at=last_success WHERE item_count>0')
+        notice_columns={r['name'] for r in db.execute('PRAGMA table_info(notices)')}
+        if 'baseline' not in notice_columns:
+            # Undated notices found on a source's first fetch: the listing's backlog, not news.
+            db.execute('ALTER TABLE notices ADD COLUMN baseline INTEGER NOT NULL DEFAULT 0')
         if 'fail_streak' not in columns:
             # Consecutive failed fetches; short network outages are only flagged once they persist.
             db.execute('ALTER TABLE sources ADD COLUMN fail_streak INTEGER NOT NULL DEFAULT 0')
@@ -91,7 +95,7 @@ def upsert_notice(db, source_id, item):
             db.execute('UPDATE notices SET last_seen=? WHERE id=?',(stamp,existing['id']))
         db.execute('INSERT OR REPLACE INTO notice_sources VALUES (?,?,?)',(existing['id'],source_id,stamp))
         return 0
-    cur=db.execute('INSERT INTO notices (source_id,'+','.join(fields)+',first_seen,last_seen) VALUES ('+
-                   ','.join('?' for _ in range(len(fields)+3))+')', [source_id]+list(data.values())+[stamp,stamp])
+    cur=db.execute('INSERT INTO notices (source_id,'+','.join(fields)+',first_seen,last_seen,baseline) VALUES ('+
+                   ','.join('?' for _ in range(len(fields)+4))+')', [source_id]+list(data.values())+[stamp,stamp,int(bool(item.get('baseline')))])
     db.execute('INSERT INTO notice_sources VALUES (?,?,?)',(cur.lastrowid,source_id,stamp))
     return 1

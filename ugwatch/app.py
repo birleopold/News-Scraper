@@ -1,6 +1,7 @@
 import csv
 import io
 import os
+import re
 import secrets
 from datetime import date, datetime, timedelta
 from pathlib import Path
@@ -8,22 +9,32 @@ from urllib.parse import urlsplit
 
 from flask import Flask, abort, jsonify, render_template, request, session, Response
 
-from .alerts import ALERT_MODES, send_test
-from .collectors import CATEGORIES, public_url
-from .db import connect, init_db, EAT
+from .alerts import ALERT_MODES, notify_run, send_test
+from .collectors import CATEGORIES, parse_listing, public_url
+from .db import connect, init_db, EAT, now, upsert_notice
 from .service import start_run
 from .sources import seed
 from .status import annotate as annotate_status
 
 
 STATUS_FILTERS=('','current','open','week','review','expired','results')
+MAX_IMPORT_BYTES=6*1024*1024
+
+
+def saved_page_url(content):
+    """The address a browser-saved page came from: Chrome/Edge add a 'saved from url'
+    comment, and most pages declare a canonical or og:url link."""
+    head=content[:200_000].decode('utf-8','ignore')
+    m=(re.search(r'saved from url=\(\d+\)(\S+)',head) or re.search(r'<link[^>]+rel=["\']canonical["\'][^>]+href=["\']([^"\']+)',head,re.I)
+       or re.search(r'<meta[^>]+property=["\']og:url["\'][^>]+content=["\']([^"\']+)',head,re.I))
+    return m.group(1) if m else None
 
 
 def create_app(database=None):
     app=Flask(__name__,template_folder='../templates',static_folder='../static')
     app.config.update(SECRET_KEY=os.environ.get('SECRET_KEY') or secrets.token_hex(32),
                       DATABASE=str(database or Path(__file__).resolve().parent.parent/'data'/'uganda_watch.sqlite3'),
-                      MAX_CONTENT_LENGTH=64*1024,SESSION_COOKIE_SAMESITE='Strict',
+                      MAX_CONTENT_LENGTH=MAX_IMPORT_BYTES+64*1024,SESSION_COOKIE_SAMESITE='Strict',
                       TRUSTED_HOSTS=['127.0.0.1','localhost','[::1]'])
     init_db(app.config['DATABASE'])
     with connect(app.config['DATABASE']) as db: seed(db)
@@ -158,6 +169,36 @@ def create_app(database=None):
             if db.execute('SELECT id FROM sources WHERE url=?',(url,)).fetchone(): abort(400,'That URL is already registered.')
             db.execute('INSERT INTO sources(name,url,kind) VALUES (?,?,?)',(name,url,kind))
         return jsonify(ok=True),201
+
+    @app.post('/api/sources/<int:source_id>/import')
+    def import_saved_page(source_id):
+        """Add notices from a listing page the user saved in their own browser, for
+        sites that block automated access. Nothing is fetched from the site here."""
+        upload=request.files.get('page')
+        if upload is None: abort(400,'Choose the saved page (.html) to import.')
+        content=upload.read(MAX_IMPORT_BYTES+1)
+        if len(content)>MAX_IMPORT_BYTES: abort(400,'That file is larger than 6 MB. Save the page as "Webpage, HTML only".')
+        if b'<a' not in content.lower()[:MAX_IMPORT_BYTES]: abort(400,'That file does not look like a saved web page. Save it with Ctrl+S as "Webpage, HTML only".')
+        with connect(app.config['DATABASE']) as db:
+            source=db.execute('SELECT * FROM sources WHERE id=?',(source_id,)).fetchone()
+        if source is None: abort(404)
+        source=dict(source)
+        page_url=saved_page_url(content)
+        expected=urlsplit(source['url']).hostname.removeprefix('www.')
+        if page_url and urlsplit(page_url).hostname and urlsplit(page_url).hostname.removeprefix('www.')!=expected:
+            abort(400,f'This file is a page from {urlsplit(page_url).hostname}, not {expected}. Save the page shown on the source card.')
+        items=parse_listing(content,source['url'],source)
+        if not items: abort(400,'No notices were found in that file. Make sure it is the listing page itself, saved after it finished loading.')
+        stamp=now()
+        with connect(app.config['DATABASE']) as db:
+            run_id=db.execute("INSERT INTO runs(started_at,state,checked) VALUES (?,'running',1)",(stamp,)).lastrowid
+            added=sum(upsert_notice(db,source_id,item) for item in items)
+            message=f'Imported {len(items)} notices ({added} new) from a page saved in your browser. Save and import the page again to pick up newer adverts.'
+            db.execute("UPDATE sources SET last_checked=?,last_success=?,status='Imported',message=?,item_count=?,last_good_count=?,last_good_at=?,fail_streak=0 WHERE id=?",
+                       (stamp,stamp,message,len(items),len(items),stamp,source_id))
+            db.execute("UPDATE runs SET state='complete',finished_at=?,added=?,message=? WHERE id=?",(now(),added,f'Imported saved page for {source["name"]}.',run_id))
+        if added: notify_run(app.config['DATABASE'],run_id)
+        return jsonify(ok=True,found=len(items),added=added,message=message)
 
     @app.patch('/api/sources/<int:source_id>')
     def toggle_source(source_id):

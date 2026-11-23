@@ -4,7 +4,7 @@ const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt
 const state = {view:'all', category:'', discovered:'', page:1, pages:1, items:[], overview:null, sequence:0};
 // If the app was updated while its server kept running, the page and this script can
 // disagree. Say so plainly instead of failing on missing elements.
-const REQUIRED=['cards','status','show-hidden','source-alerts','alert-form','alert-mode','alert-hint','last-alert','test-alert'];
+const REQUIRED=['cards','status','import-file','show-hidden','source-alerts','alert-form','alert-mode','alert-hint','last-alert','test-alert'];
 if(REQUIRED.some(id=>!document.getElementById(id))){
   const note=document.createElement('div');note.setAttribute('role','alert');
   note.innerHTML='<strong>Uganda Business Watch was updated while it was running.</strong> Close the app’s window (or press Ctrl+C where it runs), start it again with <code>run.py</code> or “Start Business Watch”, then reload this page.';
@@ -47,7 +47,7 @@ async function loadNotices() {
   $('#export').href='/api/export?'+params();
 }
 function renderSources(o) {
-  $('#source-list').innerHTML=o.sources.map(s=>`<article class="source-card"><div class="source-header"><h3>${esc(s.name)}</h3><button class="toggle" data-toggle="${s.id}" aria-label="${s.enabled?'Pause':'Enable'} ${esc(s.name)}">${s.enabled?'Pause':'Enable'}</button></div><a class="url" href="${esc(s.url)}" target="_blank" rel="noopener noreferrer">${esc(s.url)}</a><span class="health ${s.status==='Needs attention'?'bad':s.status==='Temporarily unavailable'?'temp':''}">${s.enabled?esc(s.status):'Paused'} · ${esc(s.group_name)} · ${esc(s.kind)}</span><p>${esc(s.message || 'Ready for the first fetch.')}</p><small>Last checked: ${dateLabel(s.last_checked,true)} · Last successful count: ${s.item_count}</small></article>`).join('');
+  $('#source-list').innerHTML=o.sources.map(s=>`<article class="source-card"><div class="source-header"><h3>${esc(s.name)}</h3><button class="toggle" data-toggle="${s.id}" aria-label="${s.enabled?'Pause':'Enable'} ${esc(s.name)}">${s.enabled?'Pause':'Enable'}</button></div><a class="url" href="${esc(s.url)}" target="_blank" rel="noopener noreferrer">${esc(s.url)}</a><span class="health ${s.status==='Needs attention'?'bad':s.status==='Temporarily unavailable'?'temp':''}">${s.enabled?esc(s.status):'Paused'} · ${esc(s.group_name)} · ${esc(s.kind)}</span><p>${esc(s.message || 'Ready for the first fetch.')}</p><small>Last checked: ${dateLabel(s.last_checked,true)} · Last successful count: ${s.item_count}</small>${s.kind.startsWith('import_')?`<div class="detail-actions import-actions"><button class="secondary" data-import="${s.id}">Import saved page</button><a class="text-button" href="${esc(s.url)}" target="_blank" rel="noopener noreferrer">Open page to save ↗</a></div>`:''}</article>`).join('');
   $('#run-history').innerHTML=o.runs.map(r=>`<div class="history-row"><strong>${esc(r.state)}</strong><span>${dateLabel(r.started_at,true)} ${new Date(r.started_at).toLocaleTimeString('en-GB',{timeZone:'Africa/Kampala'})}</span><span>${r.added} added · ${r.checked} checked · ${r.failed} need attention</span></div>`).join('') || '<p class="muted">No fetches yet.</p>';
 }
 function renderWords(o) {
@@ -102,6 +102,7 @@ document.addEventListener('click',async e=>{
     if(b.dataset.category!==undefined){state.category=b.dataset.category;state.page=1;document.querySelectorAll('[data-category]').forEach(x=>x.classList.toggle('selected',x===b));await loadNotices();}
     if(b.dataset.save){const r=state.items.find(x=>x.id===Number(b.dataset.save));await api('/api/notices/'+r.id,'PATCH',{saved:!r.saved});await refresh();}
     if(b.dataset.detail)showDetail(Number(b.dataset.detail));
+    if(b.dataset.import){state.importSource=b.dataset.import;$('#import-file').value='';$('#import-file').click();}
     if(b.dataset.toggle){const s=state.overview.sources.find(s=>s.id===Number(b.dataset.toggle));await api('/api/sources/'+s.id,'PATCH',{enabled:!s.enabled});await loadOverview();}
     if(b.dataset.deleteWord){await api('/api/watchwords/'+b.dataset.deleteWord,'DELETE');await refresh();}
     if(b.dataset.stat){for(const id of ['search','source','from','to'])$('#'+id).value='';state.category='';document.querySelectorAll('[data-category]').forEach(x=>x.classList.toggle('selected',x.dataset.category===''));await navigate('all');state.discovered=b.dataset.stat==='new'?'today':'';$('#status').value=['open','week'].includes(b.dataset.stat)?b.dataset.stat:'';state.page=1;await loadNotices();$('#feed-title').scrollIntoView({behavior:'smooth',block:'start'});}
@@ -118,6 +119,15 @@ $('#close-detail').onclick=()=>$('#detail').close();
 $('#add-word').onsubmit=async e=>{e.preventDefault();try{await api('/api/watchwords','POST',{term:e.target.term.value});e.target.reset();await refresh();toast('Keyword added.');}catch(error){toast(error.message)}};
 $('#add-source').onsubmit=async e=>{e.preventDefault();try{await api('/api/sources','POST',Object.fromEntries(new FormData(e.target)));e.target.reset();await refresh();toast('Source added. Fetch latest to check it.');}catch(error){toast(error.message)}};
 $('#schedule-form').onsubmit=async e=>{e.preventDefault();try{await api('/api/settings','PATCH',{auto_fetch:$('#auto-fetch').checked,interval_minutes:Number($('#interval').value)});await loadOverview();toast('Schedule saved.');}catch(error){toast(error.message)}};
+$('#import-file').onchange=async e=>{
+  const file=e.target.files[0];if(!file||!state.importSource)return;
+  const form=new FormData();form.append('page',file);
+  try{
+    const r=await fetch(`/api/sources/${state.importSource}/import`,{method:'POST',headers:{'X-CSRF-Token':csrf},body:form});
+    const payload=await r.json();if(!r.ok)throw new Error(payload.error||'Import failed.');
+    toast(`Imported ${payload.found} notices (${payload.added} new).`);await refresh();
+  }catch(error){toast(error.message)}
+};
 $('#alert-mode').onchange=()=>{$('#alert-hint').hidden=!(state.overview?.watchwords.length===0&&$('#alert-mode').value==='matches')};
 $('#alert-form').onsubmit=async e=>{e.preventDefault();try{await api('/api/alerts','PATCH',{mode:$('#alert-mode').value});await loadOverview();toast('Alert preference saved.');}catch(error){toast(error.message)}};
 $('#test-alert').onclick=async()=>{const b=$('#test-alert');b.disabled=true;try{await api('/api/alerts/test','POST',{});toast('Test alert sent. Look at the bottom-right of your screen.');}catch(error){toast(error.message)}finally{b.disabled=false;await loadOverview().catch(()=>{})}};

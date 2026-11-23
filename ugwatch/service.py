@@ -57,7 +57,8 @@ def fetch_all(path,run_id):
     added=checked=failed=temporary=0
     try:
         with connect(path) as db:
-            sources=[dict(r) for r in db.execute('SELECT * FROM sources WHERE enabled=1')]
+            # Import-only sources block automated access; they are filled from saved pages.
+            sources=[dict(r) for r in db.execute("SELECT * FROM sources WHERE enabled=1 AND kind NOT LIKE 'import_%'")]
         with ThreadPoolExecutor(max_workers=4) as pool:
             futures={pool.submit(collect,s):s for s in sources}
             for future in as_completed(futures):
@@ -65,8 +66,9 @@ def fetch_all(path,run_id):
                 try:
                     items,message=future.result()
                     status,message=health(len(items),source.get('last_good_count') or 0,source.get('last_good_at'),message)
+                    first_fetch=not source.get('last_good_count') and not source.get('last_good_at')
                     with connect(path) as db:
-                        new=sum(upsert_notice(db,source['id'],item) for item in items)
+                        new=sum(upsert_notice(db,source['id'],dict(item,baseline=first_fetch)) for item in items)
                         db.execute("UPDATE sources SET last_checked=?,last_success=?,status=?,message=?,item_count=?,fail_streak=0 WHERE id=?",
                                    (now(),now(),status,message,len(items),source['id']))
                         if items:

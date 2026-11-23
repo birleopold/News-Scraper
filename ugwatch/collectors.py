@@ -207,7 +207,7 @@ def card_items(soup,base,source,seen,limit):
         dated=CARD_DATE.search(card.get_text(' ',strip=True))
         items.append(dict(url=link,title=title[:300],category=kind,publisher=source['name'],deadline_origin='listing',
                           excerpt=clean(snippet.get_text(' ',strip=True))[:700] if snippet else 'Discovered on '+source['name']+'. Open the original notice for full requirements and dates.',
-                          published_at=kampala_iso(dated.group(0)) if dated else None))
+                          published_at=kampala_iso(dated.group(0)) if dated else upload_date(link)))
     return items
 
 
@@ -219,12 +219,37 @@ def collect_html(client,source):
         if not text.strip(): raise ValueError('Scanned PDF: text unavailable; OCR/manual review required.')
         deadline,evidence=extract_deadline(text)
         return [dict(url=canonical(source['url']),title=source['name'],excerpt=clean(text)[:700],category=category(text) or 'Public notice',publisher=source['name'],deadline=deadline,deadline_evidence=evidence,deadline_origin='extracted')], 'PDF text indexed (up to 30 pages). Extracted dates require review.'
-    soup=BeautifulSoup(response.content,'html.parser')
+    items=parse_listing(response.content,response.url,source)
+    if not items: raise ValueError('No readable notice links found. Page may use JavaScript, images, or a changed layout; manual review required.')
+    return items, f'{len(items)} matching links indexed from one listing page. Dates require original-notice review.'
+
+
+UPLOAD_DATE=re.compile(r'/uploads/(20\d\d)/(0[1-9]|1[0-2])/')
+# Display adverts on newspaper notice pages that are not opportunities.
+NOT_OPPORTUNITY=re.compile(r'congratulat|celebrat|anniversar|condolence|obituar|\bhappy\b|season.?s greetings|merry christmas|in memoriam',re.I)
+IMPORT_DEFAULTS={'import_tenders':'Tender','import_notices':'Public notice'}
+
+
+def upload_date(url):
+    """WordPress stores files under /uploads/YYYY/MM/; use that month as an approximate
+    publication date so old PDFs on a listing are not mistaken for new notices."""
+    m=UPLOAD_DATE.search(urlsplit(url).path)
+    return f'{m.group(1)}-{m.group(2)}-01T00:00:00+03:00' if m else None
+
+
+def parse_listing(content,base,source):
+    """Notice links on one listing page (fetched live or saved by the user).
+
+    Import-only sources (pages the site blocks for automated access, saved from the
+    user's browser) take only titled adverts and default to the page's own kind."""
+    default=IMPORT_DEFAULTS.get(source.get('kind'))
+    soup=BeautifulSoup(content,'html.parser')
     for el in soup.select('nav,header,footer,script,style,aside,form'): el.decompose()
     items=[]; seen=set()
     for a in soup.select('a[href]'):
         heading=a.find(['h2','h3','h4'])
-        title=clean(heading.get_text(' ',strip=True) if heading else a.get_text(' ',strip=True)); link=canonical(urljoin(response.url,a['href']))
+        if default and not heading: continue
+        title=clean(heading.get_text(' ',strip=True) if heading else a.get_text(' ',strip=True)); link=canonical(urljoin(base,a['href'].strip()))
         if urlsplit(link).hostname in ('www.newvision.co.ug','newvision.co.ug') and 'NV_' not in urlsplit(link).path: continue
         if re.match(r'^(view (all|more)|read more|download document)$',title,re.I) and not urlsplit(link).path.lower().endswith('.pdf'): continue
         if urlsplit(link).path.lower().endswith('.pdf') and len(title)<24:
@@ -238,15 +263,18 @@ def collect_html(client,source):
                 parent=parent.parent
         kind=category(title)
         if not kind and '/category/business/' in urlsplit(link).path: kind='Business'
-        if not kind or len(title)<24 or link in seen or link==canonical(response.url) or urlsplit(link).scheme not in ('http','https'): continue
+        if not kind and default and not NOT_OPPORTUNITY.search(title): kind=default
+        if not kind or len(title)<24 or link in seen or link==canonical(base) or urlsplit(link).scheme not in ('http','https'): continue
         seen.add(link)
-        snippet=a.find('p')
-        excerpt=clean(snippet.get_text(' ',strip=True))[:700] if snippet else 'Discovered on '+source['name']+'. Open the original notice for full requirements and dates.'
-        items.append(dict(url=link,title=title,excerpt=excerpt,category=kind,publisher=source['name'],deadline_origin='listing'))
+        # The advert text is inside the link on most sites, or just after it (Daily Monitor).
+        snippet=a.find('p') or a.find_next_sibling(['p','div'])
+        text=clean(snippet.get_text(' ',strip=True)) if snippet else ''
+        excerpt=text[:700] if len(text)>20 else 'Discovered on '+source['name']+'. Open the original notice for full requirements and dates.'
+        items.append(dict(url=link,title=title[:300],excerpt=excerpt,category=kind,publisher=source['name'],deadline_origin='listing',
+                          published_at=upload_date(link)))
         if len(items)>=100: break
-    items+=card_items(soup,response.url,source,seen,100-len(items))
-    if not items: raise ValueError('No readable notice links found. Page may use JavaScript, images, or a changed layout; manual review required.')
-    return items, f'{len(items)} matching links indexed from one listing page. Dates require original-notice review.'
+    items+=card_items(soup,base,source,seen,100-len(items))
+    return items
 
 
 def kampala_iso(value):

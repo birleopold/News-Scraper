@@ -58,7 +58,7 @@ Do not run multiple web server processes against this workspace.
 
 ## Sources and coverage
 
-The registry includes 26 sources:
+The registry includes 35 sources:
 
 - Uganda eGP public procurement and disposal tables, with page-by-page reading of
   up to 1,000 current records per table and explicit submission dates. Slow
@@ -72,13 +72,38 @@ The registry includes 26 sources:
   (links go to the PDFs).
 - New Vision tenders and notices from the newspaper's opportunities section (latest
   50 of each); generic headings such as "Bid notice" are labelled with the advertiser.
-- Daily Monitor tender listing and Bing News discovery for Monitor stories.
+- Daily Monitor tenders and supplements (import-only, see below) and Bing News
+  discovery for Monitor stories.
 - New Vision business headlines and discovery.
 - The Independent RSS, KCCA procurement, NWSC notices and URA.
 - World Bank-financed procurement in Uganda (public procurement API; contract
   awards are listed under Results & awards).
 - Ministry of Finance, NSSF, UBOS, UCC, Uganda Development Bank, ERA and UEGCL
+  procurement pages.
+- UNOC, IRA, Works & Transport, Education & Sports, Local Government, Lands &
+  Housing, Kyambogo University, Civil Aviation Authority and Electoral Commission
   procurement pages. See ROADMAP.md for sources checked but not added, and why.
+
+### Import-only sources (Daily Monitor)
+
+Daily Monitor protects its site with a Cloudflare bot check, so the app never
+fetches it and does not try to get past the check. To add its adverts:
+
+1. In **Sources & coverage**, click **Open page to save** on the Daily Monitor card.
+2. When the page has loaded in your browser, press **Ctrl+S** and save it
+   ("Webpage, HTML only" is enough).
+3. Click **Import saved page** on the same card and choose the saved file.
+
+Only titled adverts are imported; celebration and condolence adverts are skipped.
+A file saved from a different website is refused. Re-importing the same page adds
+nothing twice, and new matches can trigger a desktop alert.
+
+### New sources and their backlog
+
+Undated notices found on a source's **first** fetch are treated as its backlog:
+kept and searchable under *All statuses*, but not shown as current or alerted.
+Notices that appear later count as new. For WordPress sites the upload month in a
+document's address (`/uploads/2020/07/...`) is used as its approximate date.
 - Additional Bing News discovery for Ugandan auctions, bids, grants and business.
 
 Source links were checked on 22 November 2026. Useful primary starting points:

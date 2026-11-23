@@ -18,7 +18,9 @@ def annotate(r, terms, today):
     # Award notices, bid-opening records and minutes report on a process; they are not opportunities.
     if r['status'] not in ('Upcoming', 'Due today') and not r['deadline_reviewed'] and OUTCOME.search(r['title'] + ' ' + r['excerpt']):
         r['status'] = 'Result'
-    r['recent'] = ((r['published_at'] or r['first_seen'] or '')[:10]) >= (today - timedelta(days=RECENT_DAYS)).isoformat()
+    # Undated backlog from a source's first fetch is never "recent": it was already there.
+    seen = r['published_at'] or ('' if r.get('baseline') else r['first_seen']) or ''
+    r['recent'] = seen[:10] >= (today - timedelta(days=RECENT_DAYS)).isoformat()
     r['current'] = r['status'] in ('Upcoming', 'Due today') or (r['status'] in ('Needs review', 'News') and r['recent'])
     hay = (r['title'] + ' ' + r['excerpt'] + ' ' + r['organization']).lower()
     r['matches'] = [t for t in terms if t.lower() in hay]

@@ -65,6 +65,13 @@ Checked with the app's own client (robots.txt respected). Added sources are abov
 | World Bank procurement API | Added | ~200 latest Uganda notices; awards go to Results & awards. |
 | Ministry of Finance, NSSF, UBOS, UCC, UDB | Added | Plain listing pages; 1–8 notices each. |
 | ERA, UEGCL | Added | Needed the new WordPress card support. |
+| UNOC, IRA, Works & Transport, Education, Local Government, Lands, Kyambogo, CAA, Electoral Commission | Added (23 Nov) | 1-74 notices each; first-fetch backlog kept out of Current. |
+| Daily Monitor tenders and supplements | Import-only (23 Nov) | Cloudflare bot check blocks all automated access, including RSS and sitemaps; import pages saved in your browser. |
+| Ministry of Trade, Agriculture (UCSATP page) | Not added | Mostly reports and 2019-2022 documents. |
+| URSB, PAU, UWA, NARO, UIRI, Uganda Airlines, OPM | Not added | Listings load by JavaScript or have no readable links. |
+| MUBS, CMA | Not added | Home page has a malformed link the client rejects; retry later. |
+| NIRA, Parliament | Not added | HTTPS certificate errors. |
+| Uganda Railways, Energy & Minerals, UCDA | Not added | Domains did not resolve on 23 Nov. |
 | UETCL | Not added | Listing is loaded by JavaScript; no public feed found. |
 | UNRA, Makerere tenders, OPM, NITA-U | Not added | Timed out from this connection; retry later. |
 | UIA | Not added | Site's HTTPS certificate setup is broken (TLS error). |
@@ -83,7 +90,7 @@ Checked with the app's own client (robots.txt respected). Added sources are abov
 
 | Source | Why | What to do |
 |--------|-----|------------|
-| Daily Monitor tenders | Refuses automated access (HTTP 403). | Open it manually; Monitor discovery still finds its stories. |
+| Daily Monitor tenders and supplements | Cloudflare bot check (HTTP 403) on every automated request. | Save the page in your browser and use **Import saved page**. |
 | URA tenders | Closes every automated connection. | Open it manually. |
 | New Vision tenders section | Not updated since July 2026. | Current adverts appear under New Vision notices. |
 | Scanned PDF adverts | No OCR. | Open the PDF; enter a reviewed deadline. |

@@ -551,3 +551,73 @@ def test_second_server_cannot_share_the_port(app):
             make_server('127.0.0.1',first.server_port,app)
     finally:
         first.server_close()
+
+
+MONITOR_PAGE=b'''<!DOCTYPE html><!-- saved from url=(0045)https://www.monitor.co.ug/uganda/jobs/tenders -->
+<html><head><link rel="canonical" href="https://www.monitor.co.ug/uganda/jobs/tenders"></head><body>
+<a href="/uganda/subscribe">Subscribe for a month to get full access</a>
+<main><h2>TENDERS</h2>
+<div><a href="https://www.monitor.co.ug/resource/blob/5677644/808a/ucu-eoi-data.pdf"><h3>UGANDA CHRISTIAN UNIVERSITY (UCU) - REQUEST FOR EXPRESSION OF INTEREST: CAMPUS TRANSFORMATION</h3></a>
+<p>Uganda Christian University invites real estate developers to express interest in a Finance, Build, Operate and Transfer project.</p></div>
+<div><a href="https://www.monitor.co.ug/resource/blob/5566040/d4e2/good-neighbors-data.pdf"><h3>GOOD NEIGHBORS INTERNATIONAL UGANDA: MIDLINE SURVEY CONSULTANCY OPPORTUNITY</h3></a><p>Consultants are invited.</p></div>
+<div><a href="https://www.monitor.co.ug/resource/blob/5631590/f5ff/syova-data.pdf"><h3>SYOVA SEED (U) LTD. - 64TH INDEPENDENCE ANNIVERSARY CELEBRATIONS</h3></a></div>
+<div><a href="mailto:procurement@example.org"><h3>procurement@example.org is the contact address here</h3></a></div>
+</main></body></html>'''
+
+
+def test_saved_monitor_page_parsing():
+    from ugwatch.collectors import parse_listing
+    items=parse_listing(MONITOR_PAGE,'https://www.monitor.co.ug/uganda/jobs/tenders',{'name':'Daily Monitor • tenders','kind':'import_tenders'})
+    titles=[i['title'] for i in items]
+    assert len(items)==2 and titles[0].startswith('UGANDA CHRISTIAN UNIVERSITY')
+    assert items[0]['category']=='Tender' and 'Finance, Build, Operate' in items[0]['excerpt']
+    assert items[1]['category']=='Tender'                                         # no keyword, but on the tenders page
+    assert not any('Subscribe' in t or 'ANNIVERSARY' in t for t in titles)
+
+
+def test_upload_month_dates_old_wordpress_documents():
+    from ugwatch.collectors import upload_date
+    assert upload_date('https://x.go.ug/wp-content/uploads/2020/07/Bid-Notice.pdf')=='2020-07-01T00:00:00+03:00'
+    assert upload_date('https://x.go.ug/tenders/supply-of-vehicles/') is None
+
+
+def test_import_saved_page_endpoint(app,client):
+    h={'X-CSRF-Token':client.csrf}
+    with connect(app.config['DATABASE']) as db:
+        src=db.execute("SELECT id,status,kind FROM sources WHERE name='Daily Monitor • tenders'").fetchone()
+    assert (src['status'],src['kind'])==('Import only','import_tenders')
+    import io as _io
+    send=lambda body,headers=h:client.post(f'/api/sources/{src["id"]}/import',data={'page':(_io.BytesIO(body),'tenders.html')},headers=headers,content_type='multipart/form-data')
+    assert send(MONITOR_PAGE,{}).status_code==403
+    assert client.post(f'/api/sources/{src["id"]}/import',headers=h).status_code==400
+    wrong=MONITOR_PAGE.replace(b'www.monitor.co.ug/uganda/jobs/tenders',b'www.newvision.co.ug/opportunities')
+    r=send(wrong); assert r.status_code==400 and 'newvision' in r.json['error']
+    r=send(MONITOR_PAGE); assert r.status_code==200 and (r.json['found'],r.json['added'])==(2,2)
+    assert send(MONITOR_PAGE).json['added']==0                                   # re-import adds nothing twice
+    with connect(app.config['DATABASE']) as db:
+        assert db.execute("SELECT status FROM sources WHERE id=?",(src['id'],)).fetchone()[0]=='Imported'
+    cur=client.get('/api/notices?status=current').json
+    assert cur['total']==2                                                        # imported adverts are current, not backlog
+
+
+def test_first_fetch_backlog_is_not_current_but_later_additions_are(app,client,monkeypatch):
+    path=app.config['DATABASE']
+    with connect(path) as db:
+        sid=db.execute("SELECT id FROM sources WHERE name='UNOC • tenders'").fetchone()[0]
+        db.execute('UPDATE sources SET enabled=0 WHERE id!=?',(sid,))
+    page=[dict(url='https://unoc.example/old',title='Invitation to bid for consultancy services',category='Tender')]
+    monkeypatch.setattr(service,'collect',lambda s:(list(page),'ok'))
+    service.start_run(path,background=False)
+    assert client.get('/api/notices?status=current').json['total']==0
+    assert client.get('/api/notices').json['total']==1                          # kept and searchable
+    page.append(dict(url='https://unoc.example/new',title='Invitation to bid for pipeline survey works',category='Tender'))
+    service.start_run(path,background=False)
+    cur=client.get('/api/notices?status=current').json
+    assert [r['url'] for r in cur['items']]==['https://unoc.example/new']
+
+
+def test_import_only_sources_are_never_fetched(app,monkeypatch):
+    seen=[]
+    monkeypatch.setattr(service,'collect',lambda s:(seen.append(s['kind']),([],'ok'))[1])
+    service.start_run(app.config['DATABASE'],background=False)
+    assert seen and not any(k.startswith('import_') for k in seen)
