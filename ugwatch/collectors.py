@@ -55,9 +55,24 @@ class Client:
         self.robots={}
         self.last={}
 
+    # Waits (seconds) before retrying a network hiccup: a dropped connection, timeout,
+    # failed address lookup or a 502/503/504 "try again later" answer.
+    retry_waits=(2,6)
+
+    def _retry(self,call,is_bad=lambda result:False):
+        for wait in (*self.retry_waits,None):
+            try:
+                result=call()
+            except (requests.ConnectionError,requests.Timeout,socket.gaierror):
+                if wait is None: raise
+            else:
+                if wait is None or not is_bad(result): return result
+                result.close()
+            time.sleep(wait)
+
     def request(self,url,method='GET',data=None,robots=True):
         for _ in range(6):
-            public_url(url)
+            self._retry(lambda: public_url(url))
             p=urlsplit(url); origin=f'{p.scheme}://{p.netloc}'
             if robots:
                 if origin not in self.robots:
@@ -77,7 +92,8 @@ class Client:
                 if delay>30:
                     raise ValueError('Source requests a long crawl delay; manual review required.')
                 time.sleep(max(0,delay-(time.monotonic()-self.last.get(origin,0))))
-            with self.session.request(method,url,data=data,timeout=(8,20),allow_redirects=False,stream=True) as r:
+            send=lambda: self.session.request(method,url,data=data,timeout=(8,20),allow_redirects=False,stream=True)
+            with self._retry(send,lambda r:r.status_code in (502,503,504)) as r:
                 self.last[origin]=time.monotonic()
                 if r.is_redirect:
                     url=urljoin(url,r.headers['Location'])
@@ -136,7 +152,7 @@ def collect_feed(client,source):
 
 
 def collect_egp(client,source):
-    page=retrying(lambda: client.get('https://egpuganda.go.ug/bid-notices'))
+    page=client.get('https://egpuganda.go.ug/bid-notices')
     soup=BeautifulSoup(page.content,'html.parser')
     token=soup.select_one('input[name="_token"]')
     if not token: raise ValueError('eGP page structure changed: missing public table token.')
@@ -144,7 +160,7 @@ def collect_egp(client,source):
     endpoint='https://egpuganda.go.ug/public-'+('disposals' if disposal else 'bids')+'/api-archived-notices/ajax'
     items=[]; total=0
     for start in range(0,1000,25):
-        r=retrying(lambda: client.request(endpoint,'POST',{'scope':'current','_token':token['value'],'draw':1,'start':start,'length':25}))
+        r=client.request(endpoint,'POST',{'scope':'current','_token':token['value'],'draw':1,'start':start,'length':25})
         r.raise_for_status(); payload=r.json()
         if 'data' not in payload: raise ValueError('eGP returned an unexpected response.')
         total=int(payload.get('recordsFiltered',0))
@@ -260,7 +276,7 @@ def retrying(call,retries=1,pause=2):
             time.sleep(pause)
 
 
-def get_json(client,url,retries=1):
+def get_json(client,url,retries=0):
     return retrying(lambda: client.get(url).json(),retries)
 
 
@@ -389,14 +405,24 @@ def collect_newvision(client,source):
     return items, f'{len(items)} latest New Vision {section.lower()} read. Full adverts are PDFs; extracted dates require review.'
 
 
+class TemporaryError(ValueError):
+    """A failure that is usually short-lived (network down, site overloaded), as opposed
+    to a block or a changed page. Sources that worked before are not flagged for it at once."""
+
+
 def friendly_error(exc):
-    if isinstance(exc,requests.HTTPError) and exc.response is not None and exc.response.status_code in (401,403):
-        return ValueError(f'The site refused automated access (HTTP {exc.response.status_code}). Open it manually; this app does not bypass blocks.')
-    if isinstance(exc,requests.ConnectionError):
-        return ValueError('The site closed or refused the connection. It may be down or blocking automated requests; open it manually.')
+    status=exc.response.status_code if isinstance(exc,requests.HTTPError) and exc.response is not None else None
+    if status in (401,403):
+        return ValueError(f'The site refused automated access (HTTP {status}). Open it manually; this app does not bypass blocks.')
+    if status in (429,500,502,503,504):
+        return TemporaryError(f'The site reported a temporary problem (HTTP {status}).')
+    if isinstance(exc,socket.gaierror) or 'getaddrinfo' in str(exc) or 'NameResolution' in str(exc):
+        return TemporaryError("Couldn't look up the site's address. The internet connection may have been down (for example just after the computer woke up), or the site's domain has a problem.")
     if isinstance(exc,requests.Timeout):
-        return ValueError('The site did not respond in time. It will be retried on the next fetch.')
-    return exc
+        return TemporaryError('The site did not respond in time.')
+    if isinstance(exc,(requests.ConnectionError,ConnectionError)):
+        return TemporaryError('The site closed or refused the connection. It may be down, or blocking automated requests.')
+    return ValueError(str(exc)[:300])
 
 
 WORLDBANK_API='https://search.worldbank.org/api/v2/procnotices'
@@ -436,6 +462,7 @@ def collect(source):
         if source['kind'] in ('egp','egp_disposal'): return collect_egp(client,source)
         if source['kind'] in ADAPTERS: return ADAPTERS[source['kind']](client,source)
         return collect_html(client,source)
-    except (requests.HTTPError,requests.ConnectionError,requests.Timeout) as exc:
+    except (requests.RequestException,OSError) as exc:
+        # requests' errors are OSErrors too; socket.gaierror comes from the address check.
         raise friendly_error(exc) from exc
     finally: client.session.close()

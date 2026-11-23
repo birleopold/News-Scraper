@@ -70,6 +70,9 @@ def init_db(path):
             db.execute('ALTER TABLE sources ADD COLUMN last_good_count INTEGER NOT NULL DEFAULT 0')
             db.execute('ALTER TABLE sources ADD COLUMN last_good_at TEXT')
             db.execute('UPDATE sources SET last_good_count=item_count,last_good_at=last_success WHERE item_count>0')
+        if 'fail_streak' not in columns:
+            # Consecutive failed fetches; short network outages are only flagged once they persist.
+            db.execute('ALTER TABLE sources ADD COLUMN fail_streak INTEGER NOT NULL DEFAULT 0')
 
 
 def upsert_notice(db, source_id, item):

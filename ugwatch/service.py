@@ -6,7 +6,7 @@ from datetime import datetime, timedelta
 
 from .alerts import notify_run
 from .backup import maybe_auto_backup
-from .collectors import collect
+from .collectors import TemporaryError, collect
 from .db import connect, now, EAT, upsert_notice
 
 log=logging.getLogger(__name__)
@@ -36,8 +36,25 @@ def health(count,last_good,last_good_at,message):
     return ('OK' if count else 'Empty'),message
 
 
+FLAG_AFTER=3
+
+
+def failure(exc,source):
+    """Status for a source that failed. A network hiccup at a source that has worked
+    before is 'Temporarily unavailable' until it fails FLAG_AFTER fetches in a row;
+    blocks, changed pages and never-working sources need attention straight away."""
+    streak=(source.get('fail_streak') or 0)+1
+    last_good=source.get('last_good_at')
+    if isinstance(exc,TemporaryError) and source.get('last_good_count') and streak<FLAG_AFTER:
+        return ('Temporarily unavailable',
+                f'{exc} It worked before{" (last good result "+last_good[:10]+")" if last_good else ""} and will be retried on the next fetch; '
+                f'it is flagged if it fails {FLAG_AFTER} times in a row (now {streak}).',streak)
+    note=f' Failed {streak} fetches in a row.' if streak>1 and isinstance(exc,TemporaryError) else ''
+    return 'Needs attention',f'{exc}{note}',streak
+
+
 def fetch_all(path,run_id):
-    added=checked=failed=0
+    added=checked=failed=temporary=0
     try:
         with connect(path) as db:
             sources=[dict(r) for r in db.execute('SELECT * FROM sources WHERE enabled=1')]
@@ -50,21 +67,24 @@ def fetch_all(path,run_id):
                     status,message=health(len(items),source.get('last_good_count') or 0,source.get('last_good_at'),message)
                     with connect(path) as db:
                         new=sum(upsert_notice(db,source['id'],item) for item in items)
-                        db.execute("UPDATE sources SET last_checked=?,last_success=?,status=?,message=?,item_count=? WHERE id=?",
+                        db.execute("UPDATE sources SET last_checked=?,last_success=?,status=?,message=?,item_count=?,fail_streak=0 WHERE id=?",
                                    (now(),now(),status,message,len(items),source['id']))
                         if items:
                             db.execute('UPDATE sources SET last_good_count=?,last_good_at=? WHERE id=?',(len(items),now(),source['id']))
                     if status=='Needs attention': failed+=1
                     added+=new
                 except Exception as exc:
-                    failed+=1
+                    status,message,streak=failure(exc,source)
+                    if status=='Needs attention': failed+=1
+                    else: temporary+=1
                     log.warning('%s: %s',source['name'],exc)
                     with connect(path) as db:
-                        db.execute("UPDATE sources SET last_checked=?,status='Needs attention',message=? WHERE id=?",(now(),str(exc)[:450],source['id']))
+                        db.execute('UPDATE sources SET last_checked=?,status=?,message=?,fail_streak=? WHERE id=?',(now(),status,message[:600],streak,source['id']))
                 with connect(path) as db:
                     db.execute('UPDATE runs SET added=?,checked=?,failed=? WHERE id=?',(added,checked,failed,run_id))
+        summary=f'{checked} sources checked; {failed} need attention'+(f'; {temporary} temporarily unavailable' if temporary else '')+'.'
         with connect(path) as db:
-            db.execute('UPDATE runs SET state=?,finished_at=?,message=? WHERE id=?',('partial' if failed else 'complete',now(),f'{checked} sources checked; {failed} need attention.',run_id))
+            db.execute('UPDATE runs SET state=?,finished_at=?,message=? WHERE id=?',('partial' if failed or temporary else 'complete',now(),summary,run_id))
         if added: notify_run(path,run_id)
         maybe_auto_backup(path)
     except Exception:

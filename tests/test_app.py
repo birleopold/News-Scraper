@@ -456,3 +456,98 @@ def test_second_copy_detects_running_dashboard():
         port=server.getsockname()[1]
         assert already_running(port)
     assert not already_running(port)
+
+
+def test_client_retries_network_hiccups_and_busy_answers():
+    import requests,socket
+    from ugwatch.collectors import Client
+    c=Client(); c.retry_waits=(0,0)
+    calls=[]
+    def flaky():
+        calls.append(1)
+        if len(calls)==1: raise requests.ConnectionError('reset')
+        if len(calls)==2: raise socket.gaierror(11001,'getaddrinfo failed')
+        return 'ok'
+    assert c._retry(flaky)=='ok' and len(calls)==3
+    class Busy:
+        def __init__(self,code):self.status_code=code
+        def close(self):pass
+    answers=[Busy(503),Busy(200)]
+    assert c._retry(lambda:answers.pop(0),lambda r:r.status_code in (502,503,504)).status_code==200
+    def down(): raise requests.Timeout()
+    with pytest.raises(requests.Timeout): c._retry(down)
+    c.session.close()
+
+
+def test_network_errors_are_temporary_blocks_are_not():
+    import requests,socket
+    from ugwatch.collectors import friendly_error,TemporaryError
+    dns=friendly_error(socket.gaierror(11001,'getaddrinfo failed'))
+    assert isinstance(dns,TemporaryError) and "look up the site's address" in str(dns)
+    busy=requests.Response();busy.status_code=503
+    assert isinstance(friendly_error(requests.HTTPError(response=busy)),TemporaryError)
+    blocked=requests.Response();blocked.status_code=403
+    err=friendly_error(requests.HTTPError(response=blocked))
+    assert not isinstance(err,TemporaryError) and 'refused automated access' in str(err)
+    assert isinstance(friendly_error(requests.ConnectionError('refused')),TemporaryError)
+
+
+def test_temporary_outage_is_flagged_only_when_it_persists():
+    from ugwatch.service import failure
+    from ugwatch.collectors import TemporaryError
+    worked=dict(last_good_count=186,last_good_at='2026-11-22T20:16:00+03:00',fail_streak=0)
+    status,message,streak=failure(TemporaryError("Couldn't look up the site's address."),worked)
+    assert status=='Temporarily unavailable' and streak==1 and 'last good result 2026-11-22' in message
+    assert failure(TemporaryError('x'),dict(worked,fail_streak=1))[0]=='Temporarily unavailable'
+    status,message,streak=failure(TemporaryError('x'),dict(worked,fail_streak=2))
+    assert status=='Needs attention' and streak==3 and 'Failed 3 fetches in a row' in message
+    assert failure(TemporaryError('x'),dict(last_good_count=0,fail_streak=0))[0]=='Needs attention'   # never worked (e.g. URA)
+    assert failure(ValueError('No readable notice links found.'),worked)[0]=='Needs attention'        # changed page
+
+
+def test_fetch_run_reports_temporary_outages_separately(app,monkeypatch):
+    from ugwatch.collectors import TemporaryError
+    path=app.config['DATABASE']
+    with connect(path) as db:
+        db.execute('UPDATE sources SET enabled=0 WHERE id!=1')
+        db.execute('UPDATE sources SET last_good_count=50 WHERE id=1')
+    def offline(source): raise TemporaryError('The site did not respond in time.')
+    monkeypatch.setattr(service,'collect',offline)
+    service.start_run(path,background=False)
+    with connect(path) as db:
+        src=db.execute('SELECT status,fail_streak FROM sources WHERE id=1').fetchone()
+        run=db.execute('SELECT failed,message FROM runs').fetchone()
+    assert (src['status'],src['fail_streak'])==('Temporarily unavailable',1)
+    assert run['failed']==0 and '1 temporarily unavailable' in run['message']
+
+
+def test_only_one_copy_can_hold_the_app_lock(tmp_path):
+    import subprocess,sys,textwrap
+    from pathlib import Path
+    from run import acquire_instance_lock
+    lock=tmp_path/'app.lock'
+    held=acquire_instance_lock(lock)
+    assert held is not None
+    probe=textwrap.dedent(f'''
+        import sys; sys.path.insert(0,{str(Path(__file__).resolve().parent.parent)!r})
+        from pathlib import Path
+        from run import acquire_instance_lock
+        print('free' if acquire_instance_lock(Path({str(lock)!r})) else 'taken')''')
+    second=subprocess.run([sys.executable,'-c',probe],capture_output=True,text=True,timeout=60)
+    assert second.stdout.strip()=='taken', second.stderr
+    held.close()
+    third=subprocess.run([sys.executable,'-c',probe],capture_output=True,text=True,timeout=60)
+    assert third.stdout.strip()=='free', third.stderr
+
+
+def test_second_server_cannot_share_the_port(app):
+    from werkzeug.serving import make_server
+    from run import exclusive_port_binding
+    exclusive_port_binding()
+    first=make_server('127.0.0.1',0,app)
+    try:
+        # Werkzeug reports the refused bind by exiting; either form means the port is protected.
+        with pytest.raises((OSError,SystemExit)):
+            make_server('127.0.0.1',first.server_port,app)
+    finally:
+        first.server_close()

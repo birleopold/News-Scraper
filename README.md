@@ -154,8 +154,9 @@ second copy, keeps running on battery and retries if the app exits unexpectedly.
 ```
 
 Without a window, the log is written to `data\app.log` (rotated at 1 MB, 3 kept).
-If the app is already running, starting it again (by command, the `.cmd` file or
-the task) just reports the address and exits instead of clashing on the port. To
+Only one copy can run: it holds a lock file (`datapp.lock`) and binds its port
+exclusively, so starting it again (by command, the `.cmd` file or the task) just
+reports the address and exits, even when two starts happen seconds apart. To
 stop the windowless copy, end `pythonw.exe` in Task Manager.
 
 Keep the computer awake and connected for scheduled fetching. A crashed fetch remains locked for up
@@ -204,6 +205,11 @@ API), `templates/` and `static/` (dashboard). Extend `SOURCES` in
 `ugwatch/sources.py` to add bundled sources. GitHub Actions runs the tests on
 Windows and Linux for every push (`.github/workflows/tests.yml`).
 
-A source is marked **Needs attention** when it errors, returns nothing after
-previously returning records, or returns under a fifth of its last good count
-(when that was 10 or more). The Sources menu shows a badge with the number.
+Network hiccups (dropped connections, timeouts, failed address lookups and
+"try again later" answers such as HTTP 503) are retried twice within a fetch. A
+source that worked before and still has a network problem is shown as
+**Temporarily unavailable** and retried on the next fetch; it is only flagged
+after failing 3 fetches in a row. A source is marked **Needs attention** when it
+is blocked, never worked, keeps failing, returns nothing after previously
+returning records, or returns under a fifth of its last good count (when that was
+10 or more). The Sources menu shows a badge with the number needing attention.

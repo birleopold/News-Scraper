@@ -1,5 +1,6 @@
 import argparse
 import logging
+import os
 import socket
 import sys
 import threading
@@ -11,6 +12,43 @@ from ugwatch.db import connect
 from ugwatch.service import scheduler, start_run
 
 LOG_FILE=Path(__file__).resolve().parent/'data'/'app.log'
+
+
+LOCK_FILE=Path(__file__).resolve().parent/'data'/'app.lock'
+
+
+def acquire_instance_lock(path=LOCK_FILE):
+    """Hold an OS file lock for the life of the process so only one dashboard copy runs.
+
+    Unlike checking the port, this has no gap between checking and starting: two copies
+    launched seconds apart (sign-in task and a manual start) cannot both win. The OS
+    releases the lock automatically if the process exits or crashes. Returns the open
+    lock file to keep, or None when another copy holds it."""
+    path.parent.mkdir(parents=True,exist_ok=True)
+    handle=open(path,'a+')
+    try:
+        if os.name=='nt':
+            import msvcrt
+            handle.seek(0); msvcrt.locking(handle.fileno(),msvcrt.LK_NBLCK,1)
+        else:
+            import fcntl
+            fcntl.flock(handle,fcntl.LOCK_EX|fcntl.LOCK_NB)
+    except OSError:
+        handle.close(); return None
+    return handle
+
+
+def exclusive_port_binding():
+    """On Windows, SO_REUSEADDR (Python's default for HTTP servers) lets a second program
+    listen on the same port, and requests then go to either. Bind exclusively instead."""
+    if os.name!='nt': return
+    from werkzeug.serving import BaseWSGIServer
+    BaseWSGIServer.allow_reuse_address=False
+    original=BaseWSGIServer.server_bind
+    def server_bind(self):
+        self.socket.setsockopt(socket.SOL_SOCKET,getattr(socket,'SO_EXCLUSIVEADDRUSE',-5),1)
+        original(self)
+    BaseWSGIServer.server_bind=server_bind
 
 
 def already_running(port):
@@ -40,10 +78,13 @@ def main():
     parser.add_argument('--log-file',action='store_true',help=f'Write the log to {LOG_FILE} (automatic without a console)')
     args=parser.parse_args()
     setup_logging(args.log_file or sys.stdout is None)
-    if not args.fetch and already_running(args.port):
-        print(f'Uganda Business Watch is already running: open http://127.0.0.1:{args.port}')
-        logging.info('Not starting a second copy: port %s is already in use.',args.port)
-        return
+    if not args.fetch:
+        lock=acquire_instance_lock()
+        if lock is None or already_running(args.port):
+            print(f'Uganda Business Watch is already running: open http://127.0.0.1:{args.port}')
+            logging.info('Not starting a second copy: %s.','another copy holds the app lock' if lock is None else f'port {args.port} is already in use')
+            return
+        exclusive_port_binding()
     app=create_app()
     if args.fetch:
         run_id,started=start_run(app.config['DATABASE'],background=False)
