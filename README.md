@@ -53,12 +53,18 @@ Do not run multiple web server processes against this workspace.
    hide them). Records already in the database are never re-alerted. Alerts need the
    app or a scheduled `run.py --fetch` to be running; email/SMS are not available.
 6. Export the current filtered view to CSV, including dates, evidence and links.
+7. Open **Jobs & vacancies** for job posts, kept separate from tenders. Search titles,
+   employers and descriptions; add **job keywords** (skills, job titles, places) and
+   sort by **Best keyword match**, **Newest** or **Closing soonest**; tick **Only jobs
+   matching my keywords** to narrow the list. A job is *Open* until the closing date
+   stated in the advert; undated posts count as open for 45 days after posting, or
+   while still listed on the job board. Jobs never trigger tender alerts.
 7. Add public RSS/Atom feeds, HTML listings or text PDFs in **Sources & coverage**.
    A successful HTTP response alone is not considered successful HTML ingestion.
 
 ## Sources and coverage
 
-The registry includes 35 sources:
+The registry includes 41 sources:
 
 - Uganda eGP public procurement and disposal tables, with page-by-page reading of
   up to 1,000 current records per table and explicit submission dates. Slow
@@ -72,6 +78,8 @@ The registry includes 35 sources:
   (links go to the PDFs).
 - New Vision tenders and notices from the newspaper's opportunities section (latest
   50 of each); generic headings such as "Bid notice" are labelled with the advertiser.
+- Jobs: Jobweb Uganda (RSS), BrighterMonday, Great Uganda Jobs, the UN in Uganda
+  and NSSF careers, plus Daily Monitor jobs (import-only).
 - Daily Monitor tenders and supplements (import-only, see below) and Bing News
   discovery for Monitor stories.
 - New Vision business headlines and discovery.

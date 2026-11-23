@@ -66,6 +66,10 @@ Checked with the app's own client (robots.txt respected). Added sources are abov
 | Ministry of Finance, NSSF, UBOS, UCC, UDB | Added | Plain listing pages; 1–8 notices each. |
 | ERA, UEGCL | Added | Needed the new WordPress card support. |
 | UNOC, IRA, Works & Transport, Education, Local Government, Lands, Kyambogo, CAA, Electoral Commission | Added (23 Nov) | 1-74 notices each; first-fetch backlog kept out of Current. |
+| Jobweb Uganda, BrighterMonday, Great Uganda Jobs, UN in Uganda, NSSF careers | Added for Jobs (23 Nov) | 54 job posts on first fetch. |
+| ReliefWeb jobs API, UNDP jobs | Not added | robots.txt disallows automated access. |
+| Fuzu | Not added | Job listings load by JavaScript. |
+| Public Service Commission, URA careers | Not added | Timed out / dropped connections on 23 Nov; retry later. |
 | Daily Monitor tenders and supplements | Import-only (23 Nov) | Cloudflare bot check blocks all automated access, including RSS and sitemaps; import pages saved in your browser. |
 | Ministry of Trade, Agriculture (UCSATP page) | Not added | Mostly reports and 2019-2022 documents. |
 | URSB, PAU, UWA, NARO, UIRI, Uganda Airlines, OPM | Not added | Listings load by JavaScript or have no readable links. |

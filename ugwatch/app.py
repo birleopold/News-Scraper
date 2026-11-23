@@ -69,8 +69,9 @@ def create_app(database=None):
         with connect(app.config['DATABASE']) as db:
             records=[dict(r) for r in db.execute('SELECT n.*,s.name AS source_name,s.kind AS source_kind FROM notices n JOIN sources s ON n.source_id=s.id ORDER BY n.published_at IS NULL,n.published_at DESC,n.first_seen DESC,n.id DESC')]
             terms=[r['term'] for r in db.execute('SELECT term FROM watchwords')]
+            job_terms=[r['term'] for r in db.execute('SELECT term FROM job_words')]
         today=datetime.now(EAT).date()
-        return [annotate_status(r,terms,today) for r in records]
+        return [annotate_status(r,terms,today,job_terms) for r in records]
 
     def filtered(records,status=None):
         q=request.args.get('q','').lower().strip()
@@ -81,8 +82,11 @@ def create_app(database=None):
                 except ValueError: abort(400,'Invalid date filter.')
         status=request.args.get('status','') if status is None else status
         if status not in STATUS_FILTERS: abort(400,'Invalid status filter.')
+        view=request.args.get('view','all')
         result=[]
         for r in records:
+            if (view=='jobs')!=(r['category']=='Job'): continue
+            if view=='jobs' and request.args.get('mine')=='1' and not r['job_matches']: continue
             if q and q not in ' '.join(str(r[k] or '') for k in ('title','excerpt','organization','reference','publisher')).lower(): continue
             if request.args.get('category') and r['category']!=request.args['category']: continue
             if request.args.get('source') and str(r['source_id'])!=request.args['source']: continue
@@ -92,7 +96,6 @@ def create_app(database=None):
             if status=='review' and r['status']!='Needs review': continue
             if status=='expired' and r['status']!='Expired': continue
             if status=='week' and not (r['status'] in ('Upcoming','Due today') and r['days_left']<=7): continue
-            view=request.args.get('view','all')
             if view=='saved' and not r['saved']: continue
             if view=='matches' and not r['matches']: continue
             if view=='unread' and r['read']: continue
@@ -103,6 +106,9 @@ def create_app(database=None):
             result.append(r)
         if request.args.get('sort')=='deadline': result.sort(key=lambda r:r['effective_deadline'] or '9999')
         if request.args.get('sort')=='discovered': result.sort(key=lambda r:r['first_seen'],reverse=True)
+        if request.args.get('sort')=='match':
+            # Most of your job keywords first; the list is already newest-first, and sort is stable.
+            result.sort(key=lambda r:len(r.get('job_matches') or []),reverse=True)
         return result
 
     @app.get('/api/notices')
@@ -116,17 +122,21 @@ def create_app(database=None):
 
     @app.get('/api/overview')
     def overview():
-        records=rows(); today=datetime.now(EAT).date().isoformat()
+        everything=rows(); today=datetime.now(EAT).date().isoformat()
+        records=[r for r in everything if r['category']!='Job']
+        jobs=[r for r in everything if r['category']=='Job']
         upcoming=[r for r in records if r['status'] in ('Upcoming','Due today')]
         with connect(app.config['DATABASE']) as db:
             sources=[dict(r) for r in db.execute('SELECT * FROM sources ORDER BY id')]
             runs=[dict(r) for r in db.execute('SELECT * FROM runs ORDER BY id DESC LIMIT 10')]
             words=[dict(r) for r in db.execute('SELECT * FROM watchwords ORDER BY term')]
+            job_words=[dict(r) for r in db.execute('SELECT * FROM job_words ORDER BY term')]
             settings=dict(db.execute('SELECT key,value FROM settings').fetchall())
         return jsonify(stats=dict(total=len(records),current=sum(r['current'] for r in records),new_today=sum(r['first_seen'][:10]==today for r in records),
                                   upcoming=len(upcoming),closing_week=sum(r['days_left']<=7 for r in upcoming),
-                                  review=sum(r['status']=='Needs review' and r['recent'] for r in records),saved=sum(r['saved'] for r in records),matches=sum(bool(r['matches']) for r in records)),
-                       deadlines=sorted(upcoming,key=lambda r:r['effective_deadline'])[:6],sources=sources,runs=runs,watchwords=words,settings=settings,today=today,categories=CATEGORIES)
+                                  review=sum(r['status']=='Needs review' and r['recent'] for r in records),saved=sum(r['saved'] for r in records),matches=sum(bool(r['matches']) for r in records),
+                                  jobs_open=sum(r['current'] for r in jobs),job_matches=sum(bool(r['job_matches']) and r['current'] for r in jobs)),
+                       deadlines=sorted(upcoming,key=lambda r:r['effective_deadline'])[:6],sources=sources,runs=runs,watchwords=words,job_words=job_words,settings=settings,today=today,categories=CATEGORIES)
 
     def body():
         data=request.get_json(silent=True)
@@ -218,6 +228,18 @@ def create_app(database=None):
     @app.delete('/api/watchwords/<int:word_id>')
     def delete_word(word_id):
         with connect(app.config['DATABASE']) as db: db.execute('DELETE FROM watchwords WHERE id=?',(word_id,))
+        return jsonify(ok=True)
+
+    @app.post('/api/jobwords')
+    def add_job_word():
+        term=str(body().get('term','')).strip()
+        if not term or len(term)>80: abort(400,'Use a keyword or phrase up to 80 characters.')
+        with connect(app.config['DATABASE']) as db: db.execute('INSERT OR IGNORE INTO job_words(term) VALUES (?)',(term,))
+        return jsonify(ok=True),201
+
+    @app.delete('/api/jobwords/<int:word_id>')
+    def delete_job_word(word_id):
+        with connect(app.config['DATABASE']) as db: db.execute('DELETE FROM job_words WHERE id=?',(word_id,))
         return jsonify(ok=True)
 
     @app.patch('/api/settings')

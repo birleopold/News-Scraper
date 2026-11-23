@@ -54,6 +54,7 @@ def init_db(path):
           source_id INTEGER NOT NULL REFERENCES sources(id),
           last_seen TEXT NOT NULL, PRIMARY KEY(notice_id,source_id));
         CREATE TABLE IF NOT EXISTS watchwords (id INTEGER PRIMARY KEY, term TEXT NOT NULL UNIQUE COLLATE NOCASE);
+        CREATE TABLE IF NOT EXISTS job_words (id INTEGER PRIMARY KEY, term TEXT NOT NULL UNIQUE COLLATE NOCASE);
         CREATE TABLE IF NOT EXISTS runs (
           id INTEGER PRIMARY KEY, started_at TEXT NOT NULL, finished_at TEXT,
           state TEXT NOT NULL, added INTEGER NOT NULL DEFAULT 0,

@@ -1,10 +1,10 @@
 'use strict';
 const $ = s => document.querySelector(s);
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
-const state = {view:'all', category:'', discovered:'', page:1, pages:1, items:[], overview:null, sequence:0};
+const state = {view:'all', category:'', discovered:'', page:1, pages:1, items:[], overview:null, sequence:0, jobsPage:1};
 // If the app was updated while its server kept running, the page and this script can
 // disagree. Say so plainly instead of failing on missing elements.
-const REQUIRED=['cards','status','import-file','show-hidden','source-alerts','alert-form','alert-mode','alert-hint','last-alert','test-alert'];
+const REQUIRED=['cards','status','jobs-view','job-cards','job-words','import-file','show-hidden','source-alerts','alert-form','alert-mode','alert-hint','last-alert','test-alert'];
 if(REQUIRED.some(id=>!document.getElementById(id))){
   const note=document.createElement('div');note.setAttribute('role','alert');
   note.innerHTML='<strong>Uganda Business Watch was updated while it was running.</strong> Close the app’s window (or press Ctrl+C where it runs), start it again with <code>run.py</code> or “Start Business Watch”, then reload this page.';
@@ -50,6 +50,32 @@ function renderSources(o) {
   $('#source-list').innerHTML=o.sources.map(s=>`<article class="source-card"><div class="source-header"><h3>${esc(s.name)}</h3><button class="toggle" data-toggle="${s.id}" aria-label="${s.enabled?'Pause':'Enable'} ${esc(s.name)}">${s.enabled?'Pause':'Enable'}</button></div><a class="url" href="${esc(s.url)}" target="_blank" rel="noopener noreferrer">${esc(s.url)}</a><span class="health ${s.status==='Needs attention'?'bad':s.status==='Temporarily unavailable'?'temp':''}">${s.enabled?esc(s.status):'Paused'} · ${esc(s.group_name)} · ${esc(s.kind)}</span><p>${esc(s.message || 'Ready for the first fetch.')}</p><small>Last checked: ${dateLabel(s.last_checked,true)} · Last successful count: ${s.item_count}</small>${s.kind.startsWith('import_')?`<div class="detail-actions import-actions"><button class="secondary" data-import="${s.id}">Import saved page</button><a class="text-button" href="${esc(s.url)}" target="_blank" rel="noopener noreferrer">Open page to save ↗</a></div>`:''}</article>`).join('');
   $('#run-history').innerHTML=o.runs.map(r=>`<div class="history-row"><strong>${esc(r.state)}</strong><span>${dateLabel(r.started_at,true)} ${new Date(r.started_at).toLocaleTimeString('en-GB',{timeZone:'Africa/Kampala'})}</span><span>${r.added} added · ${r.checked} checked · ${r.failed} need attention</span></div>`).join('') || '<p class="muted">No fetches yet.</p>';
 }
+function renderJobWords(o) {
+  $('#job-words').innerHTML=o.job_words.map(w=>`<span class="word">${esc(w.term)}<button data-delete-jobword="${w.id}" aria-label="Remove ${esc(w.term)}">×</button></span>`).join('') || '<p class="muted">No job keywords yet.</p>';
+}
+function jobParams(){
+  const p=new URLSearchParams({view:'jobs',page:state.jobsPage,sort:$('#jobs-sort').value,status:$('#jobs-status').value});
+  if($('#jobs-search').value.trim())p.set('q',$('#jobs-search').value.trim());
+  if($('#jobs-source').value)p.set('source',$('#jobs-source').value);
+  if($('#jobs-mine').checked)p.set('mine','1');
+  return p;
+}
+function jobCard(r){
+  const who=[r.organization,r.publisher||r.source_name].filter(Boolean).filter((v,i,a)=>a.indexOf(v)===i).join(' · ');
+  const closes=r.effective_deadline?` · ${r.status==='Closed'?'Closed':'Closes'} ${dateLabel(r.effective_deadline,true)}`:'';
+  const cls=['Closed','Older post','No longer listed'].includes(r.status)?'expired':'';
+  return `<article class="notice-card job-card ${r.read?'is-read':''}"><div class="card-top"><span class="badge Job">Job</span><span>${esc(who)}</span><button class="save ${r.saved?'saved':''}" data-save="${r.id}" aria-label="${r.saved?'Unsave':'Save'} job" aria-pressed="${!!r.saved}">${r.saved?'★':'☆'}</button></div><button class="card-title" data-detail="${r.id}">${esc(r.title)}</button><p>${esc(r.excerpt)}</p>${r.job_matches.length?`<div class="match-label">◎ Matches: ${r.job_matches.map(esc).join(', ')}</div>`:''}<div class="card-bottom"><span class="status ${cls}">${esc(r.status)}${closes}</span><span>${r.published_at?'Posted '+dateLabel(r.published_at,true):'Found '+dateLabel(r.first_seen,true)}</span></div></article>`;
+}
+async function loadJobs(){
+  const seq=++state.sequence; const data=await api('/api/notices?'+jobParams()); if(seq!==state.sequence)return;
+  state.items=data.items; state.jobsPages=data.pages;
+  const words=state.overview?.job_words.length||0;
+  $('#jobs-label').textContent=`${data.total.toLocaleString()} ${$('#jobs-status').value==='current'?'open ':''}${data.total===1?'job':'jobs'}${data.hidden?` · ${data.hidden.toLocaleString()} closed or older hidden`:''}${$('#jobs-sort').value==='match'&&!words?' · add job keywords to rank by best match':''}`;
+  $('#job-cards').innerHTML=data.items.map(jobCard).join('') || `<div class="empty"><div class="empty-icon">✎</div><h3>No matching jobs</h3><p>${state.overview?.stats.jobs_open?'Try another search, untick “Only jobs matching my keywords”, or include closed jobs.':'Fetch the latest sources to load job posts.'}</p></div>`;
+  $('#jobs-page-info').textContent=`Page ${state.jobsPage} of ${data.pages}`;
+  $('#jobs-prev').disabled=state.jobsPage<=1; $('#jobs-next').disabled=state.jobsPage>=data.pages;
+  $('#jobs-export').href='/api/export?'+jobParams();
+}
 function renderWords(o) {
   $('#watchwords').innerHTML=o.watchwords.map(w=>`<span class="word">${esc(w.term)}<button data-delete-word="${w.id}" aria-label="Remove ${esc(w.term)}">×</button></span>`).join('') || '<p class="muted">Add your first keyword to start matching.</p>';
 }
@@ -58,6 +84,9 @@ async function loadOverview() {
   for(const [id,key] of [['total','total'],['new','new_today'],['open','upcoming'],['week','closing_week']]) $('#stat-'+id).textContent=o.stats[key].toLocaleString();
   const broken=o.sources.filter(s=>s.enabled&&s.status==='Needs attention').length;
   $('#source-alerts').hidden=!broken;$('#source-alerts').textContent=broken;
+  $('#job-count').textContent=o.stats.jobs_open.toLocaleString();renderJobWords(o);
+  const jobSource=$('#jobs-source').value;
+  $('#jobs-source').innerHTML='<option value="">All job sources</option>'+o.sources.filter(s=>s.group_name==='Jobs').map(s=>`<option value="${s.id}">${esc(s.name)}</option>`).join('');$('#jobs-source').value=jobSource;
   $('#saved-count').textContent=o.stats.saved;$('#match-count').textContent=o.stats.matches;$('#review-count').textContent=o.stats.review;
   $('#today').textContent=new Date(o.today+'T12:00:00+03:00').toLocaleDateString('en-GB',{weekday:'short',day:'numeric',month:'long',year:'numeric',timeZone:'Africa/Kampala'});
   const selected=$('#source').value;
@@ -75,16 +104,18 @@ async function loadOverview() {
   $('#fetch').disabled=latest?.state==='running';$('#fetch').innerHTML=latest?.state==='running'?'Fetching…':'<span>⟳</span> Fetch latest';
   clearTimeout(pollTimer);pollTimer=setTimeout(()=>refresh().catch(e=>{toast(e.message);pollTimer=setTimeout(()=>refresh().catch(()=>{}),30000)}),latest?.state==='running'?3000:30000);
 }
-async function refresh(){await loadOverview();if(!['sources','settings'].includes(state.view))await loadNotices();}
+async function refresh(){await loadOverview();if(state.view==='jobs')await loadJobs();else if(!['sources','settings'].includes(state.view))await loadNotices();}
 async function navigate(view){
   state.view=view;state.page=1;state.discovered='';
   // Saved items stay visible after they close; other feeds start on current opportunities.
-  if(!['sources','settings'].includes(view))$('#status').value=view==='saved'?'':'current';
-  const titles={all:['Stay ahead of the opportunity.','Tenders, auctions and business updates. Gathered for you.','Overview'],saved:['Your saved opportunities.','A shortlist for the business moves that matter.','Saved opportunities'],unread:['A fresh perspective.','Catch up on notices you haven’t reviewed yet.','Unread notices'],matches:['News that fits your interests.','Updates matching your personal keyword watchlist.','Keyword matches'],sources:['A clear view of your sources.','See what is working, what needs attention, and expand your coverage.','Sources & coverage'],settings:['Make this desk your own.','Choose your interests and how often to check for updates.','Watchlist & settings']};
+  if(!['sources','settings','jobs'].includes(view))$('#status').value=view==='saved'?'':'current';
+  state.jobsPage=1;
+  const titles={jobs:['Jobs & open positions.','Ugandan vacancies from job boards, employers and the UN. Search, add your keywords and sort by best match.','Jobs & vacancies'],all:['Stay ahead of the opportunity.','Tenders, auctions and business updates. Gathered for you.','Overview'],saved:['Your saved opportunities.','A shortlist for the business moves that matter.','Saved opportunities'],unread:['A fresh perspective.','Catch up on notices you haven’t reviewed yet.','Unread notices'],matches:['News that fits your interests.','Updates matching your personal keyword watchlist.','Keyword matches'],sources:['A clear view of your sources.','See what is working, what needs attention, and expand your coverage.','Sources & coverage'],settings:['Make this desk your own.','Choose your interests and how often to check for updates.','Watchlist & settings']};
   const t=titles[view];$('#page-title').textContent=t[0];$('#page-description').textContent=t[1];$('#breadcrumb').textContent=t[2];
   document.querySelectorAll('.nav').forEach(b=>b.classList.toggle('active',b.dataset.view===view));
-  $('#notice-view').hidden=['sources','settings'].includes(view);$('#sources-view').hidden=view!=='sources';$('#settings-view').hidden=view!=='settings';
+  $('#notice-view').hidden=['sources','settings','jobs'].includes(view);$('#jobs-view').hidden=view!=='jobs';$('#sources-view').hidden=view!=='sources';$('#settings-view').hidden=view!=='settings';
   if(!$('#notice-view').hidden)await loadNotices();
+  if(view==='jobs')await loadJobs();
 }
 function showDetail(id){
   const r=state.items.find(n=>n.id===id)||state.overview.deadlines.find(n=>n.id===id);if(!r)return;
@@ -104,6 +135,7 @@ document.addEventListener('click',async e=>{
     if(b.dataset.detail)showDetail(Number(b.dataset.detail));
     if(b.dataset.import){state.importSource=b.dataset.import;$('#import-file').value='';$('#import-file').click();}
     if(b.dataset.toggle){const s=state.overview.sources.find(s=>s.id===Number(b.dataset.toggle));await api('/api/sources/'+s.id,'PATCH',{enabled:!s.enabled});await loadOverview();}
+    if(b.dataset.deleteJobword){await api('/api/jobwords/'+b.dataset.deleteJobword,'DELETE');await refresh();}
     if(b.dataset.deleteWord){await api('/api/watchwords/'+b.dataset.deleteWord,'DELETE');await refresh();}
     if(b.dataset.stat){for(const id of ['search','source','from','to'])$('#'+id).value='';state.category='';document.querySelectorAll('[data-category]').forEach(x=>x.classList.toggle('selected',x.dataset.category===''));await navigate('all');state.discovered=b.dataset.stat==='new'?'today':'';$('#status').value=['open','week'].includes(b.dataset.stat)?b.dataset.stat:'';state.page=1;await loadNotices();$('#feed-title').scrollIntoView({behavior:'smooth',block:'start'});}
   }catch(error){toast(error.message)}
@@ -119,6 +151,11 @@ $('#close-detail').onclick=()=>$('#detail').close();
 $('#add-word').onsubmit=async e=>{e.preventDefault();try{await api('/api/watchwords','POST',{term:e.target.term.value});e.target.reset();await refresh();toast('Keyword added.');}catch(error){toast(error.message)}};
 $('#add-source').onsubmit=async e=>{e.preventDefault();try{await api('/api/sources','POST',Object.fromEntries(new FormData(e.target)));e.target.reset();await refresh();toast('Source added. Fetch latest to check it.');}catch(error){toast(error.message)}};
 $('#schedule-form').onsubmit=async e=>{e.preventDefault();try{await api('/api/settings','PATCH',{auto_fetch:$('#auto-fetch').checked,interval_minutes:Number($('#interval').value)});await loadOverview();toast('Schedule saved.');}catch(error){toast(error.message)}};
+for(const id of ['jobs-sort','jobs-status','jobs-source','jobs-mine'])$('#'+id).onchange=()=>{state.jobsPage=1;loadJobs().catch(e=>toast(e.message))};
+$('#jobs-filters').onsubmit=e=>e.preventDefault();
+$('#jobs-search').oninput=()=>{clearTimeout(searchTimer);searchTimer=setTimeout(()=>{state.jobsPage=1;loadJobs().catch(e=>toast(e.message))},300)};
+$('#jobs-prev').onclick=()=>{state.jobsPage--;loadJobs().catch(e=>toast(e.message))};$('#jobs-next').onclick=()=>{state.jobsPage++;loadJobs().catch(e=>toast(e.message))};
+$('#add-job-word').onsubmit=async e=>{e.preventDefault();try{await api('/api/jobwords','POST',{term:e.target.term.value});e.target.reset();await refresh();toast('Job keyword added.');}catch(error){toast(error.message)}};
 $('#import-file').onchange=async e=>{
   const file=e.target.files[0];if(!file||!state.importSource)return;
   const form=new FormData();form.append('page',file);
@@ -133,5 +170,5 @@ $('#alert-form').onsubmit=async e=>{e.preventDefault();try{await api('/api/alert
 $('#test-alert').onclick=async()=>{const b=$('#test-alert');b.disabled=true;try{await api('/api/alerts/test','POST',{});toast('Test alert sent. Look at the bottom-right of your screen.');}catch(error){toast(error.message)}finally{b.disabled=false;await loadOverview().catch(()=>{})}};
 // Alerts open /?view=matches; honour it on first load.
 const startView=new URLSearchParams(location.search).get('view');
-if(['matches','saved','unread'].includes(startView))navigate(startView).catch(()=>{});
+if(['matches','saved','unread','jobs'].includes(startView))navigate(startView).catch(()=>{});
 refresh().catch(e=>{toast(e.message);$('#cards').innerHTML='<div class="empty">Could not load your workspace. Check the Python server and reload.</div>'});

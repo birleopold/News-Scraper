@@ -36,6 +36,13 @@ SOURCES = [
     ('Kyambogo University • tenders','https://kyu.ac.ug/category/tenders/','html','Official'),
     ('Civil Aviation Authority • tenders','https://caa.go.ug/available-bids-tenders/','html','Official'),
     ('Electoral Commission • tenders','https://ec.or.ug/tenders','html','Official'),
+    # Jobs and open positions (shown on the Jobs page only).
+    ('Jobweb Uganda • jobs','https://jobwebuganda.com/feed/?post_type=job_listing','jobs_rss','Jobs'),
+    ('BrighterMonday • jobs','https://www.brightermonday.co.ug/jobs','jobs_html','Jobs'),
+    ('Great Uganda Jobs','https://www.greatugandajobs.com/','jobs_html','Jobs'),
+    ('UN in Uganda • jobs','https://uganda.un.org/en/jobs','jobs_html','Jobs'),
+    ('NSSF • careers','https://www.nssfug.org/opportunities/careers/','jobs_html','Jobs'),
+    ('Daily Monitor • jobs','https://www.monitor.co.ug/uganda/jobs','import_jobs','Jobs'),
     ('The Independent','https://www.independent.co.ug/feed/','rss','Newspapers'),
     ('Daily Monitor • news discovery',search_url('site:monitor.co.ug business'),'search','Discovery'),
     ('New Vision • news discovery',search_url('site:newvision.co.ug business'),'search','Discovery'),

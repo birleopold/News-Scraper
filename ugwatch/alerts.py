@@ -62,8 +62,9 @@ def run_alert_items(db, started_at, mode):
     if mode == 'matches' and not terms: return []
     today = datetime.now(EAT).date()
     rows = [annotate(dict(r), terms, today) for r in db.execute('SELECT * FROM notices WHERE first_seen>=? ORDER BY deadline IS NULL,deadline,id', (started_at,))]
+    rows = [r for r in rows if r['category'] != 'Job']  # jobs have their own page and keywords
     if mode == 'matches': return [r for r in rows if r['matches'] and r['current']]
-    return [r for r in rows if r['status'] in ('Upcoming', 'Due today') or (r['matches'] and r['current'])]
+    return [r for r in rows if r['category'] != 'Job' and (r['status'] in ('Upcoming', 'Due today') or (r['matches'] and r['current']))]
 
 
 def summary(items, mode):

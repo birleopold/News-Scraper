@@ -16,7 +16,7 @@ from pypdf import PdfReader
 
 UA = 'UgandaBusinessWatch/1.0 (personal public-news index)'
 MAX_BYTES = 6 * 1024 * 1024
-CATEGORIES = ('Tender','Auction','Bid','Grant','Public notice','Business')
+CATEGORIES = ('Tender','Auction','Bid','Grant','Public notice','Business','Job')
 
 
 def clean(value):
@@ -227,7 +227,7 @@ def collect_html(client,source):
 UPLOAD_DATE=re.compile(r'/uploads/(20\d\d)/(0[1-9]|1[0-2])/')
 # Display adverts on newspaper notice pages that are not opportunities.
 NOT_OPPORTUNITY=re.compile(r'congratulat|celebrat|anniversar|condolence|obituar|\bhappy\b|season.?s greetings|merry christmas|in memoriam',re.I)
-IMPORT_DEFAULTS={'import_tenders':'Tender','import_notices':'Public notice'}
+IMPORT_DEFAULTS={'import_tenders':'Tender','import_notices':'Public notice','import_jobs':'Job'}
 
 
 def upload_date(url):
@@ -480,7 +480,84 @@ def collect_worldbank(client,source):
     return items, f'{len(items)} latest World Bank-financed notices for Uganda (bids, expressions of interest and contract awards) from the public procurement API.'
 
 
-ADAPTERS={'worldbank':collect_worldbank,'ppda':collect_ppda,'bou':collect_bou,'newvision_tenders':collect_newvision,'newvision_notices':collect_newvision}
+JOB_LINKS={
+    # Links to individual job posts on each job site (everything else on the page is navigation).
+    'www.brightermonday.co.ug':r'^/listings/[a-z0-9-]+-[a-z0-9]{6}/?$',  # job slugs end in a 6-character code
+    'www.greatugandajobs.com':r'/job-detail/',
+    'www.nssfug.org':r'/featured-jobs/.+',
+}
+GENERIC_JOB_LINK=r'/(?:jobs?|listings|vacanc\w*|careers?)/[^/?#]{6,}'
+NOT_A_JOB_TITLE=re.compile(r'^(apply( now)?|view( all)?( jobs)?|visit|read more|learn more|details|more|sign in|register|post (a )?jobs?)\b',re.I)
+
+
+def job_organization(title):
+    """'Accountant at HR Consults Uganda' -> 'HR Consults Uganda'."""
+    m=re.search(r'\s(?:job\s)?at\s+(.{3,80})$',title,re.I)
+    return clean(m.group(1)) if m else ''
+
+
+def collect_jobs_feed(client,source):
+    """Job-board RSS (e.g. WordPress Job Manager); reads up to three feed pages."""
+    entries=[]
+    for page in (1,2,3):
+        url=source['url']+(('&' if '?' in source['url'] else '?')+f'paged={page}' if page>1 else '')
+        try: feed=feedparser.parse(client.get(url).content)
+        except (requests.HTTPError,ValueError):
+            if page==1: raise
+            break
+        if not feed.entries: break
+        entries+=feed.entries
+    if not entries: raise ValueError('This URL did not return any job feed entries.')
+    items=[]; seen=set()
+    for entry in entries:
+        title=clean(entry.get('title','')); link=entry.get('link','')
+        if not title or urlsplit(link).scheme not in ('http','https') or canonical(link) in seen: continue
+        seen.add(canonical(link))
+        body=clean((entry.get('content') or [{}])[0].get('value') or entry.get('summary',''))
+        deadline,evidence=extract_deadline(body)
+        items.append(dict(url=canonical(link),title=title[:300],excerpt=clean(entry.get('summary',''))[:700],category='Job',
+                          publisher=source['name'],organization=job_organization(title),published_at=iso_date(entry.get('published')),
+                          deadline=deadline,deadline_evidence=evidence,deadline_origin='extracted' if deadline else 'feed'))
+    return items, f'{len(items)} latest job posts read from the feed.'
+
+
+def collect_job_listing(client,source):
+    """Job posts on one job-board page: links to individual posts, with the card text as excerpt."""
+    response=client.get(source['url'])
+    soup=BeautifulSoup(response.content,'html.parser')
+    for el in soup.select('nav,header,footer,script,style,form'): el.decompose()
+    page_host=urlsplit(response.url).hostname
+    pattern=JOB_LINKS.get(page_host,GENERIC_JOB_LINK)
+    found={}
+    for a in soup.select('a[href]'):
+        link=canonical(urljoin(response.url,a['href'].strip()))
+        parts=urlsplit(link); title=clean(a.get_text(' ',strip=True))
+        if parts.scheme not in ('http','https') or len(title)<5 or NOT_A_JOB_TITLE.match(title) or re.search(r'learn more$|\(\d+\)$',title,re.I): continue  # '(25)' = a category count
+        external_job=parts.hostname!=page_host and (re.match(r'(jobs|careers)\.',parts.hostname or '') or '/job' in parts.path)
+        if not (re.search(pattern,parts.path) or (page_host=='uganda.un.org' and external_job)): continue
+        card=a
+        for _ in range(6):
+            if card.parent is None: break
+            card=card.parent
+            if len(clean(card.get_text(' ',strip=True)))>len(title)+40: break
+        text=clean(card.get_text(' ',strip=True))
+        if len(text)>1500: text=''
+        if link not in found or len(title)>len(found[link][0]): found[link]=(title,text)
+    items=[]
+    for link,(title,text) in list(found.items())[:100]:
+        deadline,evidence=extract_deadline(text)
+        rest=text.replace(title,'',1).strip(' -·|')
+        # Job cards often start with the employer's logo letter: "S SMARTEC ELECTRONICS LTD New (posted Today) ..."
+        rest=re.sub(r'^[A-Z]\s{1,3}(?=[A-Z0-9])','',rest)
+        employer=re.match(r'(.{3,80}?)\s+(?:New\b|Posted\b|\(posted)',rest)
+        items.append(dict(url=link,title=title[:300],excerpt=(rest or 'Open the job post for requirements and how to apply.')[:500],
+                          category='Job',publisher=source['name'],organization=job_organization(title) or (clean(employer.group(1)) if employer else ''),
+                          deadline=deadline,deadline_evidence=evidence,deadline_origin='extracted' if deadline else 'listing'))
+    if not items: raise ValueError('No job posts found. The page may load jobs with JavaScript or have changed layout.')
+    return items, f'{len(items)} job posts read from one listing page.'
+
+
+ADAPTERS={'jobs_rss':collect_jobs_feed,'jobs_html':collect_job_listing,'worldbank':collect_worldbank,'ppda':collect_ppda,'bou':collect_bou,'newvision_tenders':collect_newvision,'newvision_notices':collect_newvision}
 
 
 def collect(source):

@@ -6,3 +6,6 @@
 .nav b.warn{background:#fbeed5;color:#8a5a12}
 .source-card .health.temp{color:#8e7653}
 .import-actions{margin-top:12px}
+.badge.Job{background:#e8f0fb;color:#2f5f9a}
+#jobs-view .checkbox{margin:12px 0 0}
+.right-rail .inline-form{margin:16px 0}.right-rail .inline-form input{min-width:0;width:100%;padding:9px 10px;border:1px solid #d5dfda;border-radius:5px}.right-rail .inline-form .primary{flex:none}
