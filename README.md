@@ -66,6 +66,19 @@ Do not run multiple web server processes against this workspace.
    the purchase of" items; garbage/waste disposal services and Treasury bill/bond
    auctions are excluded. The default alert mode is **New disposals & auctions,
    plus keyword matches**.
+   - **Advert PDFs are read** (up to 15 per fetch, first 5 pages): what is sold
+     (vehicles, land & buildings, equipment & ICT, furniture, scrap, livestock &
+     produce), places, lots, viewing and auction dates, bid security, and a clearly
+     labelled closing date (kept as *extracted*, to confirm). Letterhead addresses and
+     procurement-law wording ("Procurement and Disposal of Public Assets Act") are
+     ignored. Vaguely titled newspaper notices ("PUBLIC NOTICE") are read too, so
+     disposals hidden behind them are found. Scanned adverts are marked as such.
+   - **Filter** disposals by asset type and place; cards show the facts.
+   - **Past disposals & results** in each disposal's details: earlier sales of the
+     same kind of asset (same seller first), with amounts printed in their adverts.
+     These are a guide, not confirmed sale prices.
+   - **Duplicates**: the same advert on several sources is shown once, with "Also
+     listed at" links. Vague titles are never merged.
 8. Open **Jobs & vacancies** for job posts, kept separate from tenders. Search titles,
    employers and descriptions; add **job keywords** (skills, job titles, places) and
    sort by **Best keyword match**, **Newest** or **Closing soonest**; tick **Only jobs
@@ -244,7 +257,9 @@ precedence, annotation retention, source failures, concurrent-run locking, feed
 normalisation, eGP pagination, search/watchlists, CSRF, private URLs and CSV formula
 escaping. Network availability remains an independent live integration check.
 
-Main code: `ugwatch/collectors.py` (source adapters), `db.py` (SQLite), `service.py`
+Main code: `ugwatch/collectors.py` (source adapters), `classify.py` (categories,
+disposal detection, asset types and places), `enrich.py` (advert PDFs and re-checking
+categories), `duplicates.py` (same advert on several sources), `db.py` (SQLite), `service.py`
 (fetch orchestration, source health and scheduler), `status.py` (open/closed/result
 rules), `alerts.py` (desktop notifications), `backup.py` (backups), `app.py` (HTTP
 API), `templates/` and `static/` (dashboard). Extend `SOURCES` in

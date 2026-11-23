@@ -76,6 +76,10 @@ def init_db(path):
             db.execute('ALTER TABLE sources ADD COLUMN last_good_at TEXT')
             db.execute('UPDATE sources SET last_good_count=item_count,last_good_at=last_success WHERE item_count>0')
         notice_columns={r['name'] for r in db.execute('PRAGMA table_info(notices)')}
+        if 'pdf_url' not in notice_columns:
+            # The full advert PDF (e.g. New Vision) and facts read from it (JSON), for disposals.
+            db.execute('ALTER TABLE notices ADD COLUMN pdf_url TEXT')
+            db.execute('ALTER TABLE notices ADD COLUMN details TEXT')
         if 'baseline' not in notice_columns:
             # Undated notices found on a source's first fetch: the listing's backlog, not news.
             db.execute('ALTER TABLE notices ADD COLUMN baseline INTEGER NOT NULL DEFAULT 0')
@@ -86,14 +90,16 @@ def init_db(path):
 
 def upsert_notice(db, source_id, item):
     fields = ['url','title','excerpt','category','publisher','published_at','deadline',
-              'deadline_evidence','deadline_origin','reference','organization']
-    data = {k: item.get(k, '' if k not in ('published_at','deadline') else None) for k in fields}
-    existing = db.execute('SELECT id,deadline_origin FROM notices WHERE url=?', (data['url'],)).fetchone()
+              'deadline_evidence','deadline_origin','reference','organization','pdf_url']
+    data = {k: item.get(k, '' if k not in ('published_at','deadline','pdf_url') else None) for k in fields}
+    existing = db.execute('SELECT id,deadline_origin,details FROM notices WHERE url=?', (data['url'],)).fetchone()
     stamp = now()
     if existing:
         # User annotations and reviewed deadlines survive refreshes.
         priority={'official':4,'extracted':3,'feed':2,'listing':1,'discovery':0}
-        if priority.get(data['deadline_origin'],0)>=priority.get(existing['deadline_origin'],0):
+        if existing['details'] and priority.get(data['deadline_origin'],0)<4:
+            db.execute('UPDATE notices SET source_id=?,last_seen=? WHERE id=?',(source_id,stamp,existing['id']))
+        elif priority.get(data['deadline_origin'],0)>=priority.get(existing['deadline_origin'],0):
             db.execute('UPDATE notices SET '+','.join(f'{k}=?' for k in fields if k != 'url')+
                        ',source_id=?,last_seen=? WHERE id=?', [data[k] for k in fields if k != 'url']+[source_id,stamp,existing['id']])
         else:

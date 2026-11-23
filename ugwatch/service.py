@@ -6,6 +6,7 @@ from datetime import datetime, timedelta
 
 from .alerts import notify_run
 from .backup import maybe_auto_backup
+from .enrich import enrich, reclassify
 from .collectors import TemporaryError, collect
 from .db import connect, now, EAT, upsert_notice
 
@@ -87,6 +88,9 @@ def fetch_all(path,run_id):
         summary=f'{checked} sources checked; {failed} need attention'+(f'; {temporary} temporarily unavailable' if temporary else '')+'.'
         with connect(path) as db:
             db.execute('UPDATE runs SET state=?,finished_at=?,message=? WHERE id=?',('partial' if failed or temporary else 'complete',now(),summary,run_id))
+        # Read new advert PDFs before alerting, so disposals hidden behind vague titles are found.
+        enrich(path)
+        with connect(path) as db: reclassify(db)
         if added: notify_run(path,run_id)
         maybe_auto_backup(path)
     except Exception:

@@ -14,6 +14,8 @@ from .collectors import CATEGORIES, mark_disposals, parse_listing, public_url
 from .db import connect, init_db, EAT, now, upsert_notice
 from .service import start_run
 from .sources import seed
+from .duplicates import mark_duplicates
+from .enrich import reclassify
 from .status import annotate as annotate_status
 
 
@@ -37,10 +39,12 @@ def create_app(database=None):
                       MAX_CONTENT_LENGTH=MAX_IMPORT_BYTES+64*1024,SESSION_COOKIE_SAMESITE='Strict',
                       TRUSTED_HOSTS=['127.0.0.1','localhost','[::1]'])
     init_db(app.config['DATABASE'])
-    with connect(app.config['DATABASE']) as db: seed(db)
+    with connect(app.config['DATABASE']) as db:
+        seed(db)
+        reclassify(db)   # apply the current disposal rules to stored notices
     # Version tag for /static URLs so browsers fetch the script and styles that match this page.
     static=Path(app.static_folder)
-    build=format(int(max((static/f).stat().st_mtime for f in ('app.js','style.css'))),'x')
+    build=format(int(max(f.stat().st_mtime for f in [static/'style.css',*static.glob('js/*.js')])),'x')
 
     @app.before_request
     def csrf():
@@ -71,7 +75,7 @@ def create_app(database=None):
             terms=[r['term'] for r in db.execute('SELECT term FROM watchwords')]
             job_terms=[r['term'] for r in db.execute('SELECT term FROM job_words')]
         today=datetime.now(EAT).date()
-        return [annotate_status(r,terms,today,job_terms) for r in records]
+        return mark_duplicates([annotate_status(r,terms,today,job_terms) for r in records])
 
     def filtered(records,status=None):
         q=request.args.get('q','').lower().strip()
@@ -88,6 +92,9 @@ def create_app(database=None):
             if (view=='jobs')!=(r['category']=='Job'): continue
             if view=='jobs' and request.args.get('mine')=='1' and not r['job_matches']: continue
             if view=='disposals' and r['category']!='Auction': continue
+            if r.get('duplicate_of') and request.args.get('dupes')!='1': continue
+            if request.args.get('asset') and request.args['asset'] not in r['assets']: continue
+            if request.args.get('place') and request.args['place'] not in r['places']: continue
             if q and q not in ' '.join(str(r[k] or '') for k in ('title','excerpt','organization','reference','publisher')).lower(): continue
             if request.args.get('category') and r['category']!=request.args['category']: continue
             if request.args.get('source') and str(r['source_id'])!=request.args['source']: continue
@@ -124,7 +131,8 @@ def create_app(database=None):
     @app.get('/api/overview')
     def overview():
         everything=rows(); today=datetime.now(EAT).date().isoformat()
-        records=[r for r in everything if r['category']!='Job']
+        records=[r for r in everything if r['category']!='Job' and not r.get('duplicate_of')]
+        sales=[r for r in records if r['category']=='Auction']
         jobs=[r for r in everything if r['category']=='Job']
         upcoming=[r for r in records if r['status'] in ('Upcoming','Due today')]
         with connect(app.config['DATABASE']) as db:
@@ -139,12 +147,41 @@ def create_app(database=None):
                                   disposals=sum(r['current'] and r['category']=='Auction' for r in records),
                                   jobs_open=sum(r['current'] for r in jobs),job_matches=sum(bool(r['job_matches']) and r['current'] for r in jobs)),
                        deadlines=sorted(upcoming,key=lambda r:r['effective_deadline'])[:6],
+                       disposal_facets=dict(assets=facet(sales,'assets'),places=facet(sales,'places')),
                        latest_disposals=[r for r in records if r['current'] and r['category']=='Auction'][:5],sources=sources,runs=runs,watchwords=words,job_words=job_words,settings=settings,today=today,categories=CATEGORIES)
 
     def body():
         data=request.get_json(silent=True)
         if not isinstance(data,dict): abort(400,'Expected a JSON object.')
         return data
+
+    def facet(records,key):
+        counts={}
+        for r in records:
+            for value in r[key]: counts[value]=counts.get(value,0)+1
+        return sorted(({'name':k,'count':v} for k,v in counts.items()),key=lambda x:(-x['count'],x['name']))
+
+    @app.get('/api/notices/<int:notice_id>/history')
+    def disposal_history(notice_id):
+        """Earlier disposals of the same kind of asset (same seller first), with any amounts
+        their adverts state: a guide to what similar assets went for, not a valuation."""
+        records=[r for r in rows() if r['category']=='Auction' and not r.get('duplicate_of')]
+        target=next((r for r in records if r['id']==notice_id),None)
+        if target is None: abort(404)
+        org=(target['organization'] or '').lower()
+        scored=[]
+        for r in records:
+            if r['id']==notice_id: continue
+            shared=set(r['assets'])&set(target['assets'])
+            same_seller=bool(org) and (r['organization'] or '').lower()==org
+            if not shared and not same_seller: continue
+            scored.append((3*same_seller+len(shared)+(r['status']=='Result'),r))
+        scored.sort(key=lambda x:x[1]['published_at'] or x[1]['first_seen'],reverse=True)   # newest first...
+        scored.sort(key=lambda x:-x[0])                                                      # ...within each relevance level
+        items=[dict(id=r['id'],title=r['title'],url=r['url'],status=r['status'],organization=r['organization'],
+                    date=(r['published_at'] or r['first_seen'])[:10],assets=r['assets'],amounts=r['facts'].get('amounts') or [],
+                    bid_security=r['facts'].get('bid_security'),auction_date=r['facts'].get('auction_date')) for _,r in scored[:8]]
+        return jsonify(items=items)
 
     @app.post('/api/fetch')
     def fetch():

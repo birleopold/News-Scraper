@@ -14,43 +14,14 @@ from bs4 import BeautifulSoup
 from dateutil import parser
 from pypdf import PdfReader
 
+from .classify import CATEGORIES, category, is_asset_disposal  # noqa: F401  (re-exported for callers)
+
 UA = 'UgandaBusinessWatch/1.0 (personal public-news index)'
 MAX_BYTES = 6 * 1024 * 1024
-CATEGORIES = ('Tender','Auction','Bid','Grant','Public notice','Business','Job')
 
 
 def clean(value):
     return ' '.join(BeautifulSoup(str(value or ''),'html.parser').get_text(' ',strip=True).split())
-
-
-# Disposal of public assets and other asset sales. Stored under the 'Auction' category
-# (shown as "Disposals & auctions"). Waste/garbage "disposal" services are not asset sales.
-ASSET_DISPOSAL=re.compile(
-    r'\bauction(?:s|ing|eers?)?\b|\bdisposals?\b|\bdispose\b|sale by (?:public )?(?:auction|tender)|'
-    r'sale of (?:used|old|obsolete|scrap|unserviceable|boarded|assorted|decommissioned|motor|vehicles?|assets?|'
-    r'equipment|furniture|property|properties|land|livestock|farm animals|timber|trees)|'
-    r'boarded[- ]off|board of survey|decommissioned assets?|\bscrap\b|unserviceable|obsolete (?:assets|items|stores|equipment)|'
-    r'mortgage sale|bailiffs?\b|(?:invites?|invitation)[^.]{0,40}\bbids? for (?:the )?purchase|for sale by|private treaty',re.I)
-WASTE_SERVICE=re.compile(r'(?:garbage|waste|refuse|sanitary|sewage|sludge|faecal|medical waste|effluent)[^.]{0,40}dispos|dispos\w*[^.]{0,25}(?:garbage|waste|refuse|sewage|sludge)',re.I)
-
-
-FINANCIAL_AUCTION=re.compile(r'(?:treasury|t-?bills?|bonds?|securities|forex|foreign exchange|spectrum)[^.]{0,30}auction|auction[^.]{0,30}(?:treasury|t-?bills?|bonds?|securities)',re.I)
-
-
-def is_asset_disposal(text):
-    if not ASSET_DISPOSAL.search(text or '') or FINANCIAL_AUCTION.search(text): return False
-    # "Fumigation and garbage collection and disposal" is a service contract, unless it also sells assets.
-    return not WASTE_SERVICE.search(text) or bool(re.search(r'\bauction|scrap|boarded|decommissioned|sale of',text,re.I))
-
-
-def category(text):
-    if is_asset_disposal(text): return 'Auction'
-    patterns = [('Grant',r'\bgrants?\b|call for proposals'),
-                ('Tender',r'\btenders?\b|pre.?qualification|expression of interest'),
-                ('Bid',r'\bbids?\b|\bbidding\b|\bprocurement\b'),
-                ('Public notice',r'public notice|notice to the public'),
-                ('Business',r'\bbusiness\b|\binvest\w*|\beconom\w*|\btrade\b|\bfinanc\w*|\bbank\w*|\benterprise\w*|\btax\b|\bexport\w*')]
-    return next((name for name,rx in patterns if re.search(rx,text,re.I)),None)
 
 
 def canonical(url):
@@ -98,10 +69,10 @@ class Client:
                 if origin not in self.robots:
                     rr=self.request(origin+'/robots.txt',robots=False)
                     rp=RobotFileParser()
-                    if rr.status_code==404:
+                    # RFC 9309: robots.txt "unavailable" (4xx) means no restrictions, e.g. Amazon S3
+                    # answers 403 for any missing file. 429 and 5xx mean "unreachable": stay away.
+                    if 400<=rr.status_code<500 and rr.status_code!=429:
                         rp.parse([])
-                    elif rr.status_code in (401,403):
-                        rp.parse(['User-agent: *','Disallow: /'])
                     else:
                         rr.raise_for_status(); rp.parse(rr.text.splitlines())
                     self.robots[origin]=rp
@@ -458,6 +429,7 @@ def collect_newvision(client,source):
         items.append(dict(url=canonical(f'https://www.newvision.co.ug/opportunities/{section.lower()}-{int(notice_id)}'),
                           title=title[:300],excerpt=body[:700] or clean(row.get('summary'))[:700],organization=org,
                           category=kind,publisher='New Vision',published_at=kampala_iso(row.get('created_on')),
+                          pdf_url=row['file_upload'] if str(row.get('file_upload') or '').lower().startswith('http') else None,
                           deadline=deadline,deadline_evidence=evidence or ('Full advert PDF: '+row['file_upload'] if row.get('file_upload') else ''),
                           deadline_origin='extracted' if deadline else 'listing'))
     return items, f'{len(items)} latest New Vision {section.lower()} read. Full adverts are PDFs; extracted dates require review.'

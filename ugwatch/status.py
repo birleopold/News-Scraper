@@ -1,6 +1,9 @@
 """Deadline status rules shared by the dashboard and alerts."""
+import json
 import re
 from datetime import date, timedelta
+
+from .classify import asset_types, places
 
 RECENT_DAYS = 45
 STILL_LISTED_DAYS = 7
@@ -26,6 +29,19 @@ def annotate(r, terms, today, job_terms=None):
     hay = (r['title'] + ' ' + r['excerpt'] + ' ' + r['organization']).lower()
     r['matches'] = [t for t in terms if t.lower() in hay]
     r['job_matches'] = [t for t in (job_terms or []) if t.lower() in hay] if r['category'] == 'Job' else []
+    facts = {}
+    if r.get('details'):
+        try: facts = json.loads(r['details'])
+        except ValueError: facts = {}
+    facts.pop('text', None)   # the advert text stays server-side; the page gets the facts
+    r.pop('details', None)
+    r['facts'] = facts
+    if r['category'] == 'Auction':
+        headline = r['title'] + ' ' + (r['excerpt'] or '')
+        r['assets'] = list(dict.fromkeys((facts.get('assets') or []) + asset_types(headline)))
+        r['places'] = list(dict.fromkeys((facts.get('places') or []) + places(headline)))
+    else:
+        r['assets'] = r['places'] = []
     if r['category'] == 'Job':
         job_status(r, d, today)
     return r

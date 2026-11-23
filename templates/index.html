@@ -5,7 +5,14 @@
   <meta name="csrf-token" content="{{ csrf }}">
   <title>Uganda Business Watch · Your opportunity desk</title>
   <meta name="app-build" content="{{ build }}">
-  <link rel="stylesheet" href="/static/style.css?v={{ build }}"><script src="/static/app.js?v={{ build }}" defer></script>
+  <link rel="stylesheet" href="/static/style.css?v={{ build }}">
+  <script src="/static/js/core.js?v={{ build }}" defer></script>
+  <script src="/static/js/disposals.js?v={{ build }}" defer></script>
+  <script src="/static/js/feed.js?v={{ build }}" defer></script>
+  <script src="/static/js/jobs.js?v={{ build }}" defer></script>
+  <script src="/static/js/settings.js?v={{ build }}" defer></script>
+  <script src="/static/js/overview.js?v={{ build }}" defer></script>
+  <script src="/static/js/main.js?v={{ build }}" defer></script>
 </head>
 <body>
 <aside class="sidebar">
@@ -42,7 +49,7 @@
         <div class="tabs" role="group" aria-label="Categories"><button class="selected" data-category="">All updates</button><button data-category="Tender">Tenders</button><button data-category="Auction">Disposals &amp; auctions</button><button data-category="Bid">Bids</button><button data-category="Grant">Grants</button><button data-category="Public notice">Notices</button><button data-category="Business">Business</button></div>
         <form id="filters" class="filters">
           <label class="search"><span>⌕</span><input id="search" type="search" placeholder="Search opportunities, companies, keywords…" aria-label="Search notices"></label>
-          <div class="filter-row"><select id="status" aria-label="Deadline status"><option value="current" selected>Current: open &amp; recent</option><option value="">All statuses</option><option value="open">Upcoming / due today</option><option value="week">Closing within 7 days</option><option value="review">Needs review</option><option value="expired">Expired</option><option value="results">Results &amp; awards</option></select><select id="source" aria-label="Source"><option value="">All sources</option></select><select id="sort" aria-label="Sort"><option value="latest">Latest published</option><option value="deadline">Deadline first</option></select></div>
+          <div class="filter-row"><select id="status" aria-label="Deadline status"><option value="current" selected>Current: open &amp; recent</option><option value="">All statuses</option><option value="open">Upcoming / due today</option><option value="week">Closing within 7 days</option><option value="review">Needs review</option><option value="expired">Expired</option><option value="results">Results &amp; awards</option></select><select id="source" aria-label="Source"><option value="">All sources</option></select><select id="disposal-asset" aria-label="Asset type" hidden><option value="">All asset types</option></select><select id="disposal-place" aria-label="Place" hidden><option value="">All places</option></select><select id="sort" aria-label="Sort"><option value="latest">Latest published</option><option value="deadline">Deadline first</option></select></div>
           <details class="date-filter"><summary>Publication date range</summary><div><label>From <input id="from" type="date"></label><label>To <input id="to" type="date"></label><button type="button" id="clear-filters" class="text-button">Reset filters</button></div></details>
         </form>
         <div class="results-heading"><span><span id="results-label">Loading your desk…</span> <button type="button" id="show-hidden" class="text-button" hidden></button></span><span>Dates in EAT</span></div>

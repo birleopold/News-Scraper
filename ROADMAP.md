@@ -61,6 +61,11 @@ Each goal says how to tell whether it is being met.
 | News discovery | Broader disposals search (disposal of, boarded off, board of survey, mortgage sale, auctioneers). |
 | URA customs auctions | URA refuses automated connections; check manually. |
 
+Done 23 Nov: advert PDFs read for assets, places, dates and bid security; filters by
+asset type and place; past disposals & results per disposal; duplicate adverts merged;
+procurement-law boilerplate no longer mistaken for disposals; robots.txt handling follows
+RFC 9309 (a missing file, e.g. Amazon S3's 403, means no restrictions).
+
 Next for disposals: court bailiff and bank auction listings, if a public source
 that permits automated reading can be found; URA auctions if its site opens up.
 
