@@ -295,6 +295,7 @@ def test_alerts_summarise_new_keyword_matches_only(app):
     with connect(path) as db:
         db.execute("UPDATE notices SET first_seen='2000-01-01T00:00:00+03:00'")
         db.execute("INSERT INTO watchwords(term) VALUES ('computers')")
+        db.execute("UPDATE settings SET value='matches' WHERE key='alert_mode'")
     run_id=start_fake_run(app)
     insert(app,url='https://example.com/new-match',title='Supply of <laptops> & computers')
     insert(app,url='https://example.com/new-other',title='Supply of furniture')
@@ -338,7 +339,7 @@ def test_alert_failure_is_recorded_not_raised(app):
 def test_alert_settings_api(app,client,monkeypatch):
     from ugwatch import alerts
     h={'X-CSRF-Token':client.csrf}
-    assert client.get('/api/overview').json['settings']['alert_mode']=='matches'
+    assert client.get('/api/overview').json['settings']['alert_mode']=='disposals'
     assert client.patch('/api/alerts',json={'mode':'loud'},headers=h).status_code==400
     assert client.patch('/api/alerts',json={'mode':'off'}).status_code==403
     assert client.patch('/api/alerts',json={'mode':'open'},headers=h).status_code==200
@@ -708,3 +709,68 @@ def test_jobs_never_trigger_tender_alerts(app):
     insert_job(app,'https://jobs.example/acc2','Accountant at Bank',deadline=(datetime.now(EAT).date()+timedelta(days=3)).isoformat(),deadline_origin='official')
     sent=[]
     assert notify_run(path,run_id,sender=lambda *a:(sent.append(a),(True,'ok'))[1])==0 and not sent
+
+
+def test_asset_disposals_are_recognised_everywhere():
+    from ugwatch.collectors import is_asset_disposal,mark_disposals,category
+    sales=['Bidding Document for Auctioning of Decommissioned Assets on 9 May 2026','Bidding Document for Disposal of Bank Properties',
+           'EMBASSY OF ICELAND - SALE OF TOYOTA LANDCRUISER 70 BY PUBLIC AUCTION','UNICEF UGANDA - SALE OF USED VEHICLES, FURNITURE AND EQUIPMENT',
+           'Kyambogo University Invites Bids for Disposal of Farm Animals','Conversion of Decommissioned Assets into Scrap',
+           'Mortgage sale of land at Kira','Invitation to bid for the purchase of boarded-off motor vehicles','Abridged Disposal Notice - Public Bidding']
+    services=['Provision of Fumigation and Garbage Collection and Disposal','Sanitary Waste Handling and Disposal Services',
+              'Treasury bond auction oversubscribed','Bank of Uganda T-bill auction results','Supply of office furniture']
+    assert all(is_asset_disposal(t) for t in sales)
+    assert not any(is_asset_disposal(t) for t in services)
+    assert category('Notice of Best Evaluated Bidder for Disposal of Bank Properties')=='Auction'
+    items=mark_disposals([dict(title='Bidding Document for Disposal of Bank Properties',category='Tender'),
+                          dict(title='Garbage collection and disposal',category='Tender'),
+                          dict(title='Driver needed to dispose of old files',category='Job')])
+    assert [i['category'] for i in items]==['Auction','Tender','Job']
+
+
+def test_disposals_page_counts_and_alerts(app,client):
+    from ugwatch.alerts import notify_run
+    path=app.config['DATABASE']
+    run_id=start_fake_run(app)
+    insert(app,url='https://x.example/sale',title='Disposal of boarded-off vehicles',category='Auction')
+    insert(app,url='https://x.example/tender',title='Supply of computers')
+    view=client.get('/api/notices?view=disposals&status=current').json
+    assert view['total']==1 and view['items'][0]['url'].endswith('/sale')
+    over=client.get('/api/overview').json
+    assert over['stats']['disposals']==1 and over['latest_disposals'][0]['url'].endswith('/sale')
+    sent=[]
+    assert notify_run(path,run_id,sender=lambda *a:(sent.append(a),(True,'ok'))[1])==1  # default mode: disposals
+    title,body,url=sent[0]
+    assert title=='1 new disposal / auction' and 'boarded-off' in body and url.endswith('?view=disposals')
+
+
+def test_old_default_alert_mode_moves_to_disposals_once(tmp_path):
+    from ugwatch.db import init_db
+    path=tmp_path/'old.sqlite3'; init_db(path)
+    with connect(path) as db:
+        db.execute("UPDATE settings SET value='matches' WHERE key='alert_mode'")
+        db.execute("DELETE FROM settings WHERE key='alert_mode_v2'")
+    init_db(path)
+    with connect(path) as db: assert db.execute("SELECT value FROM settings WHERE key='alert_mode'").fetchone()[0]=='disposals'
+    with connect(path) as db: db.execute("UPDATE settings SET value='matches' WHERE key='alert_mode'")   # user picks matches later
+    init_db(path)
+    with connect(path) as db: assert db.execute("SELECT value FROM settings WHERE key='alert_mode'").fetchone()[0]=='matches'
+
+
+def test_egp_disposal_rows_with_relative_links():
+    from ugwatch.collectors import collect_egp
+    class Response:
+        content=b'<input name="_token" value="t">'
+        def raise_for_status(self):pass
+        def json(self):return {'recordsFiltered':1,'data':[{'action_links':'<a href="/disposal/notice/277562/details">View</a>',
+            'procuring_entity':'MPIGI-LG/DPB/2022-2023/00048 Mpigi District Local Government','Method_title':'Public Bidding Public Bidding',
+            'disposal_details':'Photocopier...','published_date':'<span>2026-11-19</span>','deadline_date':'<span class="badge">2026-12-03 14:00</span>'}]}
+    class Client:
+        def get(self,url):return Response()
+        def request(self,url,method,data):return Response()
+    items,_=collect_egp(Client(),{'kind':'egp_disposal'})
+    i=items[0]
+    assert i['url']=='https://egpuganda.go.ug/disposal/notice/277562/details' and i['category']=='Auction'
+    assert i['reference']=='MPIGI-LG/DPB/2022-2023/00048' and i['organization']=='Mpigi District Local Government'
+    assert i['title']=='Disposal: Photocopier (Mpigi District Local Government)' and i['deadline']=='2026-12-03'
+    assert i['excerpt']=='Mpigi District Local Government · Public Bidding'

@@ -5,6 +5,10 @@ public notices and business stories. Flask serves the responsive dashboard;
 SQLite keeps records on this computer. No account, paid API key or AI service is
 needed.
 
+**Top priority: disposal of public assets and any other asset sale** (auctions,
+used vehicles, scrap, equipment, property, livestock). They have their own
+**Disposals & auctions** page and panel, and every new one raises a desktop alert.
+
 **Goals:** find Ugandan opportunities in time to act on them, show what can still
 be acted on first, never claim a notice is open without an official or reviewed
 date, warn loudly when a source breaks, and keep your data private and backed up.
@@ -53,7 +57,16 @@ Do not run multiple web server processes against this workspace.
    hide them). Records already in the database are never re-alerted. Alerts need the
    app or a scheduled `run.py --fetch` to be running; email/SMS are not available.
 6. Export the current filtered view to CSV, including dates, evidence and links.
-7. Open **Jobs & vacancies** for job posts, kept separate from tenders. Search titles,
+7. Open **Disposals & auctions** (second in the sidebar) for every asset sale the
+   app has found, newest first: eGP disposal notices, newspaper auctions, and
+   disposal notices from public bodies. Whatever a source calls a notice (tender,
+   bidding document, BEB, public notice), an asset sale is filed here. Detection
+   covers disposals, auctions, sale of used/obsolete/scrap/boarded-off items,
+   decommissioned assets, board-of-survey and mortgage/bailiff sales, and bids "for
+   the purchase of" items; garbage/waste disposal services and Treasury bill/bond
+   auctions are excluded. The default alert mode is **New disposals & auctions,
+   plus keyword matches**.
+8. Open **Jobs & vacancies** for job posts, kept separate from tenders. Search titles,
    employers and descriptions; add **job keywords** (skills, job titles, places) and
    sort by **Best keyword match**, **Newest** or **Closing soonest**; tick **Only jobs
    matching my keywords** to narrow the list. A job is *Open* until the closing date

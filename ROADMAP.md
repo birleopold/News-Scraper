@@ -6,6 +6,9 @@ Uganda Business Watch helps one person or a small business **find Ugandan tender
 auctions, grants and business opportunities in time to act on them**, without
 checking a dozen websites and newspapers by hand.
 
+**Top priority (set 23 Nov 2026): disposal of public assets and any other asset
+sale.** Every goal below applies to disposals first.
+
 ## Goals
 
 Each goal says how to tell whether it is being met.
@@ -45,6 +48,21 @@ Each goal says how to tell whether it is being met.
   reviewed deadlines; CSV export.
 - Desktop alerts with a test button.
 - Source health warnings, automatic daily backups, GitHub test workflow.
+
+## Disposals: sources and gaps (23 Nov 2026)
+
+| Source | Status |
+|--------|--------|
+| eGP disposal notices (official) | Read every fetch; none current today. Relative links fixed. The public archive (59, all 2023) is not imported. |
+| PPDA portal | Its disposal data is only in the entities' logged-in dashboard, not the public portal; not used. |
+| New Vision tenders and notices | Read automatically; auctions and disposal adverts appear here. |
+| Daily Monitor tenders and supplements | Import saved pages (Cloudflare blocks automated access); many auctions appear here. |
+| Bank of Uganda, IRA, Kyambogo, NWSC and other entity pages | Disposal documents detected and filed under Disposals. |
+| News discovery | Broader disposals search (disposal of, boarded off, board of survey, mortgage sale, auctioneers). |
+| URA customs auctions | URA refuses automated connections; check manually. |
+
+Next for disposals: court bailiff and bank auction listings, if a public source
+that permits automated reading can be found; URA auctions if its site opens up.
 
 ## Next
 

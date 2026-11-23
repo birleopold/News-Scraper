@@ -11,7 +11,7 @@ from .status import annotate
 
 log = logging.getLogger(__name__)
 
-ALERT_MODES = ('matches', 'open', 'off')
+ALERT_MODES = ('disposals', 'matches', 'open', 'off')
 # Windows PowerShell 5.1 ships with Windows and can reach the WinRT toast API.
 # Notice text arrives as JSON in an environment variable and is XML-escaped here,
 # so titles are never interpreted as PowerShell code or toast markup.
@@ -60,23 +60,34 @@ def run_alert_items(db, started_at, mode):
     if mode == 'off': return []
     terms = [r['term'] for r in db.execute('SELECT term FROM watchwords')]
     if mode == 'matches' and not terms: return []
+    disposal = lambda r: r['category'] == 'Auction' and r['current']
     today = datetime.now(EAT).date()
     rows = [annotate(dict(r), terms, today) for r in db.execute('SELECT * FROM notices WHERE first_seen>=? ORDER BY deadline IS NULL,deadline,id', (started_at,))]
     rows = [r for r in rows if r['category'] != 'Job']  # jobs have their own page and keywords
     if mode == 'matches': return [r for r in rows if r['matches'] and r['current']]
+    if mode == 'disposals': return [r for r in rows if disposal(r) or (r['matches'] and r['current'])]
     return [r for r in rows if r['category'] != 'Job' and (r['status'] in ('Upcoming', 'Due today') or (r['matches'] and r['current']))]
 
 
 def summary(items, mode):
+    if mode == 'disposals':
+        sales = sum(r['category'] == 'Auction' for r in items)
+        parts = [f"{sales} new disposal{'s' if sales != 1 else ''} / auction{'s' if sales != 1 else ''}"] if sales else []
+        if len(items) - sales: parts.append(f"{len(items) - sales} keyword match{'es' if len(items) - sales != 1 else ''}")
+        return ' + '.join(parts), _lines(items)
     noun = 'keyword match' if mode == 'matches' else 'open opportunity'
     plural = 'keyword matches' if mode == 'matches' else 'open opportunities'
     title = f'{len(items)} new {noun if len(items) == 1 else plural}'
+    return title, _lines(items)
+
+
+def _lines(items):
     lines = []
     for r in items[:3]:
         due = f" (closes {datetime.fromisoformat(r['effective_deadline']).strftime('%d %b')})" if r['effective_deadline'] else ''
         lines.append('• ' + r['title'][:90] + due)
     if len(items) > 3: lines.append(f'+ {len(items) - 3} more on your dashboard')
-    return title, '\n'.join(lines)
+    return '\n'.join(lines)
 
 
 def record(db, message):
@@ -93,7 +104,7 @@ def notify_run(path, run_id, sender=None):
             items = run_alert_items(db, run['started_at'], mode) if run else []
         if not items: return 0
         title, body = summary(items, mode)
-        ok, message = (sender or send_toast)(title, body, dashboard_url(values, 'matches' if mode == 'matches' else 'all'))
+        ok, message = (sender or send_toast)(title, body, dashboard_url(values, {'matches': 'matches', 'disposals': 'disposals'}.get(mode, 'all')))
         with connect(path) as db:
             record(db, f'{title}. {message}' if ok else message)
         if not ok: log.warning('Alert not shown: %s', message)

@@ -23,9 +23,29 @@ def clean(value):
     return ' '.join(BeautifulSoup(str(value or ''),'html.parser').get_text(' ',strip=True).split())
 
 
+# Disposal of public assets and other asset sales. Stored under the 'Auction' category
+# (shown as "Disposals & auctions"). Waste/garbage "disposal" services are not asset sales.
+ASSET_DISPOSAL=re.compile(
+    r'\bauction(?:s|ing|eers?)?\b|\bdisposals?\b|\bdispose\b|sale by (?:public )?(?:auction|tender)|'
+    r'sale of (?:used|old|obsolete|scrap|unserviceable|boarded|assorted|decommissioned|motor|vehicles?|assets?|'
+    r'equipment|furniture|property|properties|land|livestock|farm animals|timber|trees)|'
+    r'boarded[- ]off|board of survey|decommissioned assets?|\bscrap\b|unserviceable|obsolete (?:assets|items|stores|equipment)|'
+    r'mortgage sale|bailiffs?\b|(?:invites?|invitation)[^.]{0,40}\bbids? for (?:the )?purchase|for sale by|private treaty',re.I)
+WASTE_SERVICE=re.compile(r'(?:garbage|waste|refuse|sanitary|sewage|sludge|faecal|medical waste|effluent)[^.]{0,40}dispos|dispos\w*[^.]{0,25}(?:garbage|waste|refuse|sewage|sludge)',re.I)
+
+
+FINANCIAL_AUCTION=re.compile(r'(?:treasury|t-?bills?|bonds?|securities|forex|foreign exchange|spectrum)[^.]{0,30}auction|auction[^.]{0,30}(?:treasury|t-?bills?|bonds?|securities)',re.I)
+
+
+def is_asset_disposal(text):
+    if not ASSET_DISPOSAL.search(text or '') or FINANCIAL_AUCTION.search(text): return False
+    # "Fumigation and garbage collection and disposal" is a service contract, unless it also sells assets.
+    return not WASTE_SERVICE.search(text) or bool(re.search(r'\bauction|scrap|boarded|decommissioned|sale of',text,re.I))
+
+
 def category(text):
-    patterns = [('Auction',r'\bauction\b|\bdisposal\b|sale by auction'),
-                ('Grant',r'\bgrants?\b|call for proposals'),
+    if is_asset_disposal(text): return 'Auction'
+    patterns = [('Grant',r'\bgrants?\b|call for proposals'),
                 ('Tender',r'\btenders?\b|pre.?qualification|expression of interest'),
                 ('Bid',r'\bbids?\b|\bbidding\b|\bprocurement\b'),
                 ('Public notice',r'public notice|notice to the public'),
@@ -151,7 +171,7 @@ def collect_feed(client,source):
     return items, f'{len(feed.entries)} feed entries checked. '+('Search-index discovery; confirm dates at the publisher.' if source['kind']=='search' else 'RSS feed; linked notices may contain more detail.')
 
 
-def collect_egp(client,source):
+def collect_egp(client,source,scope='current'):
     page=client.get('https://egpuganda.go.ug/bid-notices')
     soup=BeautifulSoup(page.content,'html.parser')
     token=soup.select_one('input[name="_token"]')
@@ -160,21 +180,31 @@ def collect_egp(client,source):
     endpoint='https://egpuganda.go.ug/public-'+('disposals' if disposal else 'bids')+'/api-archived-notices/ajax'
     items=[]; total=0
     for start in range(0,1000,25):
-        r=client.request(endpoint,'POST',{'scope':'current','_token':token['value'],'draw':1,'start':start,'length':25})
+        r=client.request(endpoint,'POST',{'scope':scope,'_token':token['value'],'draw':1,'start':start,'length':25})
         r.raise_for_status(); payload=r.json()
         if 'data' not in payload: raise ValueError('eGP returned an unexpected response.')
         total=int(payload.get('recordsFiltered',0))
         for row in payload['data']:
             links=BeautifulSoup(row.get('action_links',''),'html.parser')
-            link=next((a['href'] for a in links.select('a[href]') if a['href'].startswith('https://egpuganda.go.ug/')),None)
+            # Disposal notices link relatively ("/disposal/notice/277562/details").
+            link=next((urljoin('https://egpuganda.go.ug/',a['href']) for a in links.select('a[href]')
+                       if urlsplit(urljoin('https://egpuganda.go.ug/',a['href'])).hostname=='egpuganda.go.ug'),None)
             title=clean(row.get('subject_procurement') or row.get('disposal_subject') or row.get('subject_disposal') or row.get('procurement_subject') or row.get('disposal_details'))
             if not title or not link: continue
             deadline=iso_date(row.get('submission_deadline') or clean(row.get('deadline_date')))
             org=clean(row.get('procurement_name') or row.get('procuring_entity'))
-            items.append(dict(url=canonical(link),title=title,excerpt=org,organization=org,
-                              reference=clean(row.get('procurement_ref') or row.get('disposal_ref')),
+            reference=clean(row.get('procurement_ref') or row.get('disposal_ref'))
+            # Disposal rows put the reference before the entity: "MPIGI-LG/DPB/2022-2023/00048 Mpigi ..."
+            ref=re.match(r'([A-Z0-9-]+(?:/[A-Za-z0-9-]+){2,})\s+(.*)',org)
+            if ref and not reference: reference,org=ref.group(1),ref.group(2)
+            if disposal:
+                method=clean(row.get('Method_title') or row.get('disposal_method'))
+                method=re.sub(r'^(.+?) \1$',r'\1',method)  # eGP repeats it: "Public Bidding Public Bidding"
+                title=f'Disposal: {title.rstrip(". ")}'+(f' ({org})' if org else '')
+            items.append(dict(url=canonical(link),title=title,excerpt=' · '.join(x for x in (org,method if disposal else '') if x),organization=org,
+                              reference=reference,
                               category='Auction' if disposal else 'Tender',publisher='Uganda eGP',
-                              published_at=iso_date(row.get('created_at')),
+                              published_at=iso_date(row.get('created_at') or clean(row.get('published_date'))),
                               deadline=deadline[:10] if deadline else None,
                               deadline_evidence='eGP submission deadline: '+(deadline[:10] if deadline else 'Not supplied'),deadline_origin='official'))
         if not payload['data'] or start+25>=total: break
@@ -560,13 +590,23 @@ def collect_job_listing(client,source):
 ADAPTERS={'jobs_rss':collect_jobs_feed,'jobs_html':collect_job_listing,'worldbank':collect_worldbank,'ppda':collect_ppda,'bou':collect_bou,'newvision_tenders':collect_newvision,'newvision_notices':collect_newvision}
 
 
+def mark_disposals(items):
+    """Disposals are the top priority: whatever a source called a notice (tender, BEB, bid
+    document, public notice), an asset sale is filed under Disposals & auctions."""
+    for item in items:
+        if item.get('category') not in ('Job','Auction') and is_asset_disposal(item.get('title','')+' '+(item.get('excerpt') or '')[:400]):
+            item['category']='Auction'
+    return items
+
+
 def collect(source):
     client=Client()
     try:
-        if source['kind'] in ('rss','search'): return collect_feed(client,source)
-        if source['kind'] in ('egp','egp_disposal'): return collect_egp(client,source)
-        if source['kind'] in ADAPTERS: return ADAPTERS[source['kind']](client,source)
-        return collect_html(client,source)
+        if source['kind'] in ('rss','search'): items,message=collect_feed(client,source)
+        elif source['kind'] in ('egp','egp_disposal'): items,message=collect_egp(client,source)
+        elif source['kind'] in ADAPTERS: items,message=ADAPTERS[source['kind']](client,source)
+        else: items,message=collect_html(client,source)
+        return mark_disposals(items),message
     except (requests.RequestException,OSError) as exc:
         # requests' errors are OSErrors too; socket.gaierror comes from the address check.
         raise friendly_error(exc) from exc

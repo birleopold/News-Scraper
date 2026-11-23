@@ -46,7 +46,7 @@ SOURCES = [
     ('The Independent','https://www.independent.co.ug/feed/','rss','Newspapers'),
     ('Daily Monitor • news discovery',search_url('site:monitor.co.ug business'),'search','Discovery'),
     ('New Vision • news discovery',search_url('site:newvision.co.ug business'),'search','Discovery'),
-    ('Uganda • auctions & property',search_url('Uganda ("public auction" OR "auction notice" OR "sale by auction")'),'search','Discovery'),
+    ('Uganda • auctions & property',search_url('Uganda ("public auction" OR "auction notice" OR "sale by auction" OR "disposal of" OR "boarded off" OR "board of survey" OR "mortgage sale" OR auctioneers)'),'search','Discovery'),
     ('Uganda • tenders & bids',search_url('Uganda (tender OR "bid notice" OR prequalification OR "expression of interest")'),'search','Discovery'),
     ('Uganda • grants & enterprise',search_url('Uganda ("business grant" OR "call for proposals" OR "investment opportunity" OR "business financing")'),'search','Discovery'),
     ('Uganda • business headlines',search_url('Uganda business economy trade investment'),'search','Discovery'),

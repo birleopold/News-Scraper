@@ -10,7 +10,7 @@ from urllib.parse import urlsplit
 from flask import Flask, abort, jsonify, render_template, request, session, Response
 
 from .alerts import ALERT_MODES, notify_run, send_test
-from .collectors import CATEGORIES, parse_listing, public_url
+from .collectors import CATEGORIES, mark_disposals, parse_listing, public_url
 from .db import connect, init_db, EAT, now, upsert_notice
 from .service import start_run
 from .sources import seed
@@ -87,6 +87,7 @@ def create_app(database=None):
         for r in records:
             if (view=='jobs')!=(r['category']=='Job'): continue
             if view=='jobs' and request.args.get('mine')=='1' and not r['job_matches']: continue
+            if view=='disposals' and r['category']!='Auction': continue
             if q and q not in ' '.join(str(r[k] or '') for k in ('title','excerpt','organization','reference','publisher')).lower(): continue
             if request.args.get('category') and r['category']!=request.args['category']: continue
             if request.args.get('source') and str(r['source_id'])!=request.args['source']: continue
@@ -135,8 +136,10 @@ def create_app(database=None):
         return jsonify(stats=dict(total=len(records),current=sum(r['current'] for r in records),new_today=sum(r['first_seen'][:10]==today for r in records),
                                   upcoming=len(upcoming),closing_week=sum(r['days_left']<=7 for r in upcoming),
                                   review=sum(r['status']=='Needs review' and r['recent'] for r in records),saved=sum(r['saved'] for r in records),matches=sum(bool(r['matches']) for r in records),
+                                  disposals=sum(r['current'] and r['category']=='Auction' for r in records),
                                   jobs_open=sum(r['current'] for r in jobs),job_matches=sum(bool(r['job_matches']) and r['current'] for r in jobs)),
-                       deadlines=sorted(upcoming,key=lambda r:r['effective_deadline'])[:6],sources=sources,runs=runs,watchwords=words,job_words=job_words,settings=settings,today=today,categories=CATEGORIES)
+                       deadlines=sorted(upcoming,key=lambda r:r['effective_deadline'])[:6],
+                       latest_disposals=[r for r in records if r['current'] and r['category']=='Auction'][:5],sources=sources,runs=runs,watchwords=words,job_words=job_words,settings=settings,today=today,categories=CATEGORIES)
 
     def body():
         data=request.get_json(silent=True)
@@ -197,7 +200,7 @@ def create_app(database=None):
         expected=urlsplit(source['url']).hostname.removeprefix('www.')
         if page_url and urlsplit(page_url).hostname and urlsplit(page_url).hostname.removeprefix('www.')!=expected:
             abort(400,f'This file is a page from {urlsplit(page_url).hostname}, not {expected}. Save the page shown on the source card.')
-        items=parse_listing(content,source['url'],source)
+        items=mark_disposals(parse_listing(content,source['url'],source))
         if not items: abort(400,'No notices were found in that file. Make sure it is the listing page itself, saved after it finished loading.')
         stamp=now()
         with connect(app.config['DATABASE']) as db:
