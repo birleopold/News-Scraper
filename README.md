@@ -15,7 +15,32 @@ date, warn loudly when a source breaks, and keep your data private and backed up
 See [ROADMAP.md](ROADMAP.md) for how each goal is measured, what is done, what is
 next and the known gaps.
 
-## Start on Windows
+## Install with the Windows setup file (easiest)
+
+Run **`UgandaBusinessWatch-Setup-<version>.exe`**. No Python and no administrator rights
+are needed. It installs for the current Windows user, adds a Start-menu shortcut, and
+(ticked by default) starts the app quietly whenever you sign in. Opening the shortcut
+shows the dashboard in your browser at http://127.0.0.1:5050; if the app is already
+running in the background it just opens the browser.
+
+- **Where to get it:** GitHub → *Actions* → *windows installer* → *Run workflow*, then
+  download the artifact; or push a version tag (e.g. `v1.2.0`) and it is attached to a
+  GitHub Release. To build it on your own PC (needs Inno Setup 6):
+  `powershell -ExecutionPolicy Bypass -File installer\build.ps1`
+- **Your data** lives in `%LOCALAPPDATA%\UgandaBusinessWatch\data` (a Start-menu shortcut
+  opens it). **To bring existing data** from a project-folder copy, quit both copies and
+  copy the old `data` folder's contents into that folder.
+- **Upgrading:** run the newer setup file; it closes the running app, replaces it and
+  keeps your data. **Uninstalling** (Windows Settings → Apps) removes the program and the
+  sign-in entry but keeps your data folder.
+- **Windows SmartScreen** may warn the first time ("Windows protected your PC") because
+  the installer is not code-signed: choose *More info → Run anyway*. Signing needs a paid
+  certificate.
+- Use **either** the installed app **or** the project-folder copy with
+  `install-autostart.ps1`, not both: they keep separate data. Remove the folder copy's
+  sign-in task with `uninstall-autostart.ps1` if you switch.
+
+## Start on Windows (from the project folder)
 
 Open PowerShell in this folder:
 

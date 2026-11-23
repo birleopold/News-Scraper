@@ -13,6 +13,7 @@ from .alerts import ALERT_MODES, notify_run, send_test
 from .collectors import CATEGORIES, mark_disposals, parse_listing, public_url
 from .db import connect, init_db, EAT, now, upsert_notice
 from .service import start_run
+from .paths import database_path, resource_dir
 from .sources import seed
 from .ics import calendar_events, to_ics
 from .classify import ASSET_TYPES, PLACES
@@ -37,9 +38,9 @@ def saved_page_url(content):
 
 
 def create_app(database=None):
-    app=Flask(__name__,template_folder='../templates',static_folder='../static')
+    app=Flask(__name__,template_folder=str(resource_dir()/'templates'),static_folder=str(resource_dir()/'static'))
     app.config.update(SECRET_KEY=os.environ.get('SECRET_KEY') or secrets.token_hex(32),
-                      DATABASE=str(database or Path(__file__).resolve().parent.parent/'data'/'uganda_watch.sqlite3'),
+                      DATABASE=str(database or database_path()),
                       MAX_CONTENT_LENGTH=MAX_IMPORT_BYTES+64*1024,SESSION_COOKIE_SAMESITE='Strict',
                       TRUSTED_HOSTS=['127.0.0.1','localhost','[::1]'])
     init_db(app.config['DATABASE'])

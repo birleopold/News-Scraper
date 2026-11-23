@@ -4,3 +4,7 @@ __pycache__/
 data/
 *.log
 .env
+build/
+dist/
+installer/app.ico
+installer/version.txt

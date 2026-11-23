@@ -4,17 +4,18 @@ import os
 import socket
 import sys
 import threading
+import webbrowser
 from logging.handlers import RotatingFileHandler
-from pathlib import Path
 
 from ugwatch.app import create_app
 from ugwatch.db import connect
+from ugwatch.paths import data_dir, frozen
 from ugwatch.service import scheduler, start_run
 
-LOG_FILE=Path(__file__).resolve().parent/'data'/'app.log'
+LOG_FILE=data_dir()/'app.log'
 
 
-LOCK_FILE=Path(__file__).resolve().parent/'data'/'app.lock'
+LOCK_FILE=data_dir()/'app.lock'
 
 
 def acquire_instance_lock(path=LOCK_FILE):
@@ -76,13 +77,19 @@ def main():
     parser.add_argument('--port',type=int,default=5050)
     parser.add_argument('--no-scheduler',action='store_true')
     parser.add_argument('--log-file',action='store_true',help=f'Write the log to {LOG_FILE} (automatic without a console)')
+    parser.add_argument('--open',action='store_true',help='Open the dashboard in the browser (the default for the installed app)')
+    parser.add_argument('--background',action='store_true',help='Never open the browser (used when starting at sign-in)')
     args=parser.parse_args()
+    # The installed app opens the dashboard when started from its shortcut; at sign-in it starts quietly.
+    show=(args.open or frozen()) and not args.background and not args.fetch
+    url=f'http://127.0.0.1:{args.port}'
     setup_logging(args.log_file or sys.stdout is None)
     if not args.fetch:
         lock=acquire_instance_lock()
         if lock is None or already_running(args.port):
             print(f'Uganda Business Watch is already running: open http://127.0.0.1:{args.port}')
             logging.info('Not starting a second copy: %s.','another copy holds the app lock' if lock is None else f'port {args.port} is already in use')
+            if show: webbrowser.open(url)   # already running in the background: just show it
             return
         exclusive_port_binding()
     app=create_app()
@@ -98,6 +105,7 @@ def main():
         threading.Thread(target=scheduler,args=(app.config['DATABASE'],stop),daemon=True).start()
     print(f'Uganda Business Watch: http://127.0.0.1:{args.port}')
     logging.info('Dashboard at http://127.0.0.1:%s',args.port)
+    if show: threading.Timer(1.5,webbrowser.open,args=(url,)).start()
     try: app.run(host='127.0.0.1',port=args.port,debug=False,use_reloader=False)
     finally: stop.set()
 
