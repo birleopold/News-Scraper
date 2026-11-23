@@ -14,12 +14,16 @@ from .collectors import CATEGORIES, mark_disposals, parse_listing, public_url
 from .db import connect, init_db, EAT, now, upsert_notice
 from .service import start_run
 from .sources import seed
+from .ics import calendar_events, to_ics
+from .classify import ASSET_TYPES, PLACES
 from .duplicates import mark_duplicates
 from .enrich import reclassify
 from .status import annotate as annotate_status
 
 
 STATUS_FILTERS=('','current','open','week','review','expired','results')
+PIPELINE=('','interested','viewed','bid','won','lost')
+ASSET_NAMES={name for name,_ in ASSET_TYPES}
 MAX_IMPORT_BYTES=6*1024*1024
 
 
@@ -87,12 +91,18 @@ def create_app(database=None):
         status=request.args.get('status','') if status is None else status
         if status not in STATUS_FILTERS: abort(400,'Invalid status filter.')
         view=request.args.get('view','all')
+        # Search always reaches the archive; lists show it only when asked.
+        include_archive=request.args.get('archived')=='1' or bool(q)
         result=[]
         for r in records:
             if (view=='jobs')!=(r['category']=='Job'): continue
             if view=='jobs' and request.args.get('mine')=='1' and not r['job_matches']: continue
             if view=='disposals' and r['category']!='Auction': continue
             if r.get('duplicate_of') and request.args.get('dupes')!='1': continue
+            if r['archived'] and not include_archive: continue
+            stage=request.args.get('pipeline')
+            if stage=='any' and not r['pipeline']: continue
+            if stage and stage!='any' and r['pipeline']!=stage: continue
             if request.args.get('asset') and request.args['asset'] not in r['assets']: continue
             if request.args.get('place') and request.args['place'] not in r['places']: continue
             if q and q not in ' '.join(str(r[k] or '') for k in ('title','excerpt','organization','reference','publisher')).lower(): continue
@@ -126,7 +136,9 @@ def create_app(database=None):
         records=rows(); result=filtered(records)
         # Tell the dashboard how much the Current view hides, so nothing silently disappears.
         hidden=len(filtered(records,''))-len(result) if request.args.get('status')=='current' else 0
-        return jsonify(items=result[(page-1)*24:page*24],total=len(result),hidden=hidden,page=page,pages=max(1,(len(result)+23)//24))
+        archived=0 if request.args.get('archived')=='1' else sum(1 for r in records if r['archived'] and (
+            (request.args.get('view')=='jobs')==(r['category']=='Job')) and (request.args.get('view')!='disposals' or r['category']=='Auction'))
+        return jsonify(items=result[(page-1)*24:page*24],total=len(result),hidden=hidden,archived=archived,page=page,pages=max(1,(len(result)+23)//24))
 
     @app.get('/api/overview')
     def overview():
@@ -148,6 +160,8 @@ def create_app(database=None):
                                   jobs_open=sum(r['current'] for r in jobs),job_matches=sum(bool(r['job_matches']) and r['current'] for r in jobs)),
                        deadlines=sorted(upcoming,key=lambda r:r['effective_deadline'])[:6],
                        disposal_facets=dict(assets=facet(sales,'assets'),places=facet(sales,'places')),
+                       places=list(PLACES),asset_names=[name for name,_ in ASSET_TYPES],
+                       pipeline=sum(bool(r['pipeline']) for r in records),
                        latest_disposals=[r for r in records if r['current'] and r['category']=='Auction'][:5],sources=sources,runs=runs,watchwords=words,job_words=job_words,settings=settings,today=today,categories=CATEGORIES)
 
     def body():
@@ -175,10 +189,12 @@ def create_app(database=None):
             shared=set(r['assets'])&set(target['assets'])
             same_seller=bool(org) and (r['organization'] or '').lower()==org
             if not shared and not same_seller: continue
-            scored.append((3*same_seller+len(shared)+(r['status']=='Result'),r))
+            # Your own bids and results are the most useful guide, then the same seller.
+            scored.append((4*bool(r['my_bid'] or r['outcome_amount'])+3*same_seller+len(shared)+(r['status']=='Result'),r))
         scored.sort(key=lambda x:x[1]['published_at'] or x[1]['first_seen'],reverse=True)   # newest first...
         scored.sort(key=lambda x:-x[0])                                                      # ...within each relevance level
         items=[dict(id=r['id'],title=r['title'],url=r['url'],status=r['status'],organization=r['organization'],
+                    pipeline=r['pipeline'],my_bid=r['my_bid'],outcome_amount=r['outcome_amount'],
                     date=(r['published_at'] or r['first_seen'])[:10],assets=r['assets'],amounts=r['facts'].get('amounts') or [],
                     bid_security=r['facts'].get('bid_security'),auction_date=r['facts'].get('auction_date')) for _,r in scored[:8]]
         return jsonify(items=items)
@@ -203,6 +219,17 @@ def create_app(database=None):
                 except (ValueError,TypeError): abort(400,'Use YYYY-MM-DD for the deadline.')
             fields.update(user_deadline=d or None,deadline_reviewed=1)
         if data.get('reset_deadline'): fields.update(user_deadline=None,deadline_reviewed=0)
+        if 'pipeline' in data:
+            if data['pipeline'] not in PIPELINE: abort(400,'Unknown tracker stage.')
+            fields['pipeline']=data['pipeline']
+        for key in ('my_bid','outcome_amount'):
+            if key in data:
+                value=data[key]
+                if value in (None,''): fields[key]=None; continue
+                try: value=int(str(value).replace(',',''))
+                except ValueError: abort(400,'Amounts must be whole numbers of shillings.')
+                if not 0<=value<=10**13: abort(400,'Amount out of range.')
+                fields[key]=value
         if not fields: abort(400,'No changes provided.')
         with connect(app.config['DATABASE']) as db:
             cur=db.execute('UPDATE notices SET '+','.join(k+'=?' for k in fields)+' WHERE id=?',list(fields.values())+[notice_id])
@@ -295,11 +322,33 @@ def create_app(database=None):
 
     @app.patch('/api/alerts')
     def alert_settings():
-        mode=body().get('mode')
-        if mode not in ALERT_MODES: abort(400,'Choose matches, open or off.')
+        data=body(); mode=data.get('mode')
+        if mode not in ALERT_MODES: abort(400,'Choose an alert mode.')
+        assets=data.get('assets',[]); places=data.get('places',[])
+        if not isinstance(assets,list) or any(a not in ASSET_NAMES for a in assets): abort(400,'Unknown asset type.')
+        if not isinstance(places,list) or any(p not in PLACES for p in places): abort(400,'Unknown place; choose from the list.')
         with connect(app.config['DATABASE']) as db:
-            db.execute("INSERT OR REPLACE INTO settings VALUES ('alert_mode',?)",(mode,))
+            for key,value in (('alert_mode',mode),('alert_assets',','.join(assets)),('alert_places',','.join(places)),
+                              ('reminders','0' if data.get('reminders') is False else '1')):
+                db.execute('INSERT OR REPLACE INTO settings VALUES (?,?)',(key,value))
         return jsonify(ok=True)
+
+    @app.get('/api/notices/<int:notice_id>/calendar.ics')
+    def notice_calendar(notice_id):
+        record=next((r for r in rows() if r['id']==notice_id),None)
+        if record is None: abort(404)
+        return calendar_response([record],f'notice-{notice_id}.ics')
+
+    @app.get('/api/calendar.ics')
+    def my_calendar():
+        """Dates of everything you track or saved: subscribe once, or download again for updates."""
+        # An empty calendar is still a valid file, so subscribing before tracking anything works.
+        return calendar_response([r for r in rows() if r['pipeline'] or r['saved']],'uganda-business-watch.ics',allow_empty=True)
+
+    def calendar_response(records,filename,allow_empty=False):
+        events=calendar_events(records,request.host_url.rstrip('/'))
+        if not events and not allow_empty: abort(404,'No dates to add yet.')
+        return Response(to_ics(events),mimetype='text/calendar',headers={'Content-Disposition':f'attachment; filename={filename}'})
 
     @app.post('/api/alerts/test')
     def alert_test():

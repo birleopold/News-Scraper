@@ -6,6 +6,7 @@ from datetime import date, timedelta
 from .classify import asset_types, places
 
 RECENT_DAYS = 45
+ARCHIVE_DAYS = 730   # older than two years, not saved, tracked or current: kept but out of the lists
 STILL_LISTED_DAYS = 7
 OUTCOME = re.compile(r'best[ -]evaluated[ -]bidder|\bBEB\b|\bminutes\b|bid[ -]opening[ -]record|record of (?:the )?bid[ -]opening|'
                      r'notice of (?:intention to )?award|contract award|\bawarded\b', re.I)
@@ -29,6 +30,9 @@ def annotate(r, terms, today, job_terms=None):
     hay = (r['title'] + ' ' + r['excerpt'] + ' ' + r['organization']).lower()
     r['matches'] = [t for t in terms if t.lower() in hay]
     r['job_matches'] = [t for t in (job_terms or []) if t.lower() in hay] if r['category'] == 'Job' else []
+    seen_on = (r['published_at'] or r['first_seen'] or '')[:10]
+    r['archived'] = bool(seen_on) and seen_on < (today - timedelta(days=ARCHIVE_DAYS)).isoformat() \
+        and not r['saved'] and not r.get('pipeline') and not r['current']
     facts = {}
     if r.get('details'):
         try: facts = json.loads(r['details'])

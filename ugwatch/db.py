@@ -65,6 +65,8 @@ def init_db(path):
         db.execute("INSERT OR IGNORE INTO settings VALUES ('interval_minutes','180')")
         db.execute("INSERT OR IGNORE INTO settings VALUES ('auto_fetch','1')")
         db.execute("INSERT OR IGNORE INTO settings VALUES ('alert_mode','disposals')")
+        for key,value in (('alert_assets',''),('alert_places',''),('reminders','1')):
+            db.execute('INSERT OR IGNORE INTO settings VALUES (?,?)',(key,value))
         # Disposals became the top priority on 23 Nov 2026: move the old default once.
         if not db.execute("SELECT 1 FROM settings WHERE key='alert_mode_v2'").fetchone():
             db.execute("UPDATE settings SET value='disposals' WHERE key='alert_mode' AND value='matches'")
@@ -80,9 +82,19 @@ def init_db(path):
             # The full advert PDF (e.g. New Vision) and facts read from it (JSON), for disposals.
             db.execute('ALTER TABLE notices ADD COLUMN pdf_url TEXT')
             db.execute('ALTER TABLE notices ADD COLUMN details TEXT')
+        if 'pipeline' not in notice_columns:
+            # Your bid tracker: stage, your bid and the winning amount (UGX); dates already reminded.
+            db.execute("ALTER TABLE notices ADD COLUMN pipeline TEXT NOT NULL DEFAULT ''")
+            db.execute('ALTER TABLE notices ADD COLUMN my_bid INTEGER')
+            db.execute('ALTER TABLE notices ADD COLUMN outcome_amount INTEGER')
+            db.execute("ALTER TABLE notices ADD COLUMN reminded TEXT NOT NULL DEFAULT ''")
         if 'baseline' not in notice_columns:
             # Undated notices found on a source's first fetch: the listing's backlog, not news.
             db.execute('ALTER TABLE notices ADD COLUMN baseline INTEGER NOT NULL DEFAULT 0')
+        run_columns={r['name'] for r in db.execute('PRAGMA table_info(runs)')}
+        if 'scope' not in run_columns:
+            # 'full' = every source; 'disposals' = the hourly check of eGP's official disposal list.
+            db.execute("ALTER TABLE runs ADD COLUMN scope TEXT NOT NULL DEFAULT 'full'")
         if 'fail_streak' not in columns:
             # Consecutive failed fetches; short network outages are only flagged once they persist.
             db.execute('ALTER TABLE sources ADD COLUMN fail_streak INTEGER NOT NULL DEFAULT 0')

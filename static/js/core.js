@@ -5,13 +5,15 @@ const $ = s => document.querySelector(s);
 const LABELS = {Auction: 'Disposal / auction'};
 const label = c => LABELS[c] || c;
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'}[c]));
+const STAGES = {interested: 'Interested', viewed: 'Viewed', bid: 'Bid submitted', won: 'Won', lost: 'Lost'};
 const ugx = n => 'UGX ' + Number(n).toLocaleString('en-GB');
 const state = {view: 'all', category: '', discovered: '', page: 1, pages: 1, items: [], overview: null, sequence: 0, jobsPage: 1};
 let toastTimer, pollTimer, searchTimer;
 
 // If the app was updated while its server kept running, the page and these scripts can
 // disagree. Say so plainly instead of failing on missing elements.
-const REQUIRED = ['cards', 'status', 'disposal-count', 'latest-disposals', 'disposal-asset', 'disposal-place', 'jobs-view', 'job-cards',
+const REQUIRED = ['cards', 'status', 'disposal-count', 'latest-disposals', 'disposal-asset', 'disposal-place', 'disposal-pipeline',
+  'show-archive', 'alert-assets', 'alert-places', 'alert-reminders', 'jobs-view', 'job-cards',
   'job-words', 'import-file', 'show-hidden', 'source-alerts', 'alert-form', 'alert-mode', 'alert-hint', 'last-alert', 'test-alert'];
 const STALE = REQUIRED.some(id => !document.getElementById(id));
 if (STALE) {

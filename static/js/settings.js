@@ -30,7 +30,15 @@ function renderSettings(o) {
     $('#auto-fetch').checked = o.settings.auto_fetch === '1';
     $('#interval').value = o.settings.interval_minutes;
   }
-  if (document.activeElement?.closest('#alert-form') === null) $('#alert-mode').value = o.settings.alert_mode || 'disposals';
+  if (document.activeElement?.closest('#alert-form') === null) {
+    $('#alert-mode').value = o.settings.alert_mode || 'disposals';
+    const chosen = (o.settings.alert_assets || '').split(',');
+    $('#alert-assets').innerHTML = o.asset_names.map(name =>
+      `<label class="checkbox"><input type="checkbox" value="${esc(name)}" ${chosen.includes(name) ? 'checked' : ''}> ${esc(name)}</label>`).join('');
+    $('#alert-places').value = (o.settings.alert_places || '').split(',').filter(Boolean).join(', ');
+    $('#alert-reminders').checked = o.settings.reminders !== '0';
+    $('#place-list').innerHTML = o.places.map(p => `<option value="${esc(p)}">`).join('');
+  }
   $('#alert-hint').hidden = !(o.watchwords.length === 0 && $('#alert-mode').value === 'matches');
   const last = (o.settings.last_alert || '').split('|');
   $('#last-alert').textContent = last.length > 1
@@ -72,7 +80,13 @@ function wireSettings() {
   $('#alert-mode').onchange = () => { $('#alert-hint').hidden = !(state.overview?.watchwords.length === 0 && $('#alert-mode').value === 'matches'); };
   $('#alert-form').onsubmit = async e => {
     e.preventDefault();
-    try { await api('/api/alerts', 'PATCH', {mode: $('#alert-mode').value}); await loadOverview(); toast('Alert preference saved.'); }
+    const places = $('#alert-places').value.split(',').map(p => p.trim()).filter(Boolean)
+      .map(p => state.overview.places.find(x => x.toLowerCase() === p.toLowerCase()) || p);
+    const assets = [...document.querySelectorAll('#alert-assets input:checked')].map(i => i.value);
+    try {
+      await api('/api/alerts', 'PATCH', {mode: $('#alert-mode').value, assets, places, reminders: $('#alert-reminders').checked});
+      await loadOverview(); toast('Alert preferences saved.');
+    }
     catch (error) { toast(error.message); }
   };
   $('#test-alert').onclick = async () => {

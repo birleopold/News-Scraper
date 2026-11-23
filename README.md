@@ -49,10 +49,17 @@ Do not run multiple web server processes against this workspace.
 4. Open a notice, follow its original link, save it, mark it read, and add notes.
    Save notes independently or enter a reviewed deadline. **Use source deadline**
    removes your override. Refreshes preserve your notes and saved/read flags.
-5. Add phrases in **Watchlist & settings** to highlight relevant records.
+5. Add phrases in **Watchlist & settings** to highlight relevant records. Disposal
+   alerts can be limited to asset types and places (disposals whose assets or place
+   could not be read are still alerted). **Reminders** arrive the day before and on
+   the day of viewing, auction and closing dates for disposals you track or save,
+   and once a week if Daily Monitor has not been imported for 7 days.
+   Records over two years old (not saved, tracked or current) are **archived**: out
+   of the lists, still found by search, and one click away ("Show archive").
    **Desktop alerts** (same page) show one Windows notification after each fetch
-   that finds something new: either new keyword matches (default; quiet while the
-   watchlist is empty) or any new open opportunity. Clicking it opens the dashboard.
+   that finds something new: new disposals & auctions plus keyword matches
+   (default), keyword matches only, or any new open opportunity. Clicking it opens
+   the dashboard.
    Use **Send test alert** to check Windows shows them (Focus/Do not disturb can
    hide them). Records already in the database are never re-alerted. Alerts need the
    app or a scheduled `run.py --fetch` to be running; email/SMS are not available.
@@ -79,6 +86,15 @@ Do not run multiple web server processes against this workspace.
      These are a guide, not confirmed sale prices.
    - **Duplicates**: the same advert on several sources is shown once, with "Also
      listed at" links. Vague titles are never merged.
+   - **Scanned adverts** (pictures in a PDF) are read with Windows' built-in text
+     recognition; facts read this way are marked, as OCR can misread.
+   - **Your tracker**: in a notice's details set a stage (Interested, Viewed, Bid
+     submitted, Won, Lost), your bid and the winning amount. Filter **My tracked
+     disposals**; your own bids lead the past-results list.
+   - **Calendar**: download a notice's viewing, auction and closing dates (.ics), or
+     one calendar of everything you track or saved (Watchlist & settings).
+   - **Hourly**: eGP's official disposal list is checked every hour between full
+     fetches, and advert PDFs are read within a 2-minute budget per run.
 8. Open **Jobs & vacancies** for job posts, kept separate from tenders. Search titles,
    employers and descriptions; add **job keywords** (skills, job titles, places) and
    sort by **Best keyword match**, **Newest** or **Closing soonest**; tick **Only jobs

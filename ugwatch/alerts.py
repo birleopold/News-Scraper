@@ -4,7 +4,7 @@ import logging
 import os
 import subprocess
 import sys
-from datetime import datetime
+from datetime import datetime, timedelta
 
 from .db import connect, now, EAT
 from .status import annotate
@@ -60,7 +60,14 @@ def run_alert_items(db, started_at, mode):
     if mode == 'off': return []
     terms = [r['term'] for r in db.execute('SELECT term FROM watchwords')]
     if mode == 'matches' and not terms: return []
-    disposal = lambda r: r['category'] == 'Auction' and r['current']
+    values = settings(db)
+    wanted_assets = {a for a in values.get('alert_assets', '').split(',') if a}
+    wanted_places = {p for p in values.get('alert_places', '').split(',') if p}
+    def wanted(r):
+        # A disposal whose assets or place could not be read is still alerted: nothing is silently dropped.
+        return (not wanted_assets or not r['assets'] or wanted_assets & set(r['assets'])) and \
+               (not wanted_places or not r['places'] or wanted_places & set(r['places']))
+    disposal = lambda r: r['category'] == 'Auction' and r['current'] and wanted(r)
     today = datetime.now(EAT).date()
     rows = [annotate(dict(r), terms, today) for r in db.execute('SELECT * FROM notices WHERE first_seen>=? ORDER BY deadline IS NULL,deadline,id', (started_at,))]
     rows = [r for r in rows if r['category'] != 'Job']  # jobs have their own page and keywords
@@ -121,3 +128,64 @@ def send_test(path, sender=None):
     with connect(path) as db:
         record(db, ('Test alert. ' + message) if ok else message)
     return ok, message
+
+
+REMINDER_HOUR = 7          # never wake anyone at night
+MONITOR_EVERY_DAYS = 7
+
+
+def due_reminders(db, today):
+    """Viewing, auction and closing dates of things you track or saved, falling today or tomorrow,
+    that have not been reminded yet. Returns (lines, [(id, key)])."""
+    lines, sent = [], []
+    rows = db.execute("SELECT * FROM notices WHERE (pipeline IN ('interested','viewed','bid') OR saved=1) AND category!='Job'").fetchall()
+    for row in rows:
+        r = annotate(dict(row), [], today)
+        facts = r['facts']
+        for kind, value in (('Viewing', facts.get('viewing')), ('Auction', facts.get('auction_date')), ('Closes', r['effective_deadline'])):
+            if not value: continue
+            day = value[:10]
+            when = 'today' if day == today.isoformat() else 'tomorrow' if day == (today + timedelta(days=1)).isoformat() else None
+            key = f'{kind}:{day}'
+            if not when or key in (row['reminded'] or '').split('|'): continue
+            lines.append(f"• {kind} {when}: {r['title'][:80]}")
+            sent.append((row['id'], key))
+    return lines, sent
+
+
+def send_reminders(path, sender=None, today=None):
+    """Once a day after 7 am: reminders for dates you track; once a week: import Daily Monitor.
+    Respects 'alerts off'. Never raises. Returns the number of notifications shown."""
+    shown = 0
+    try:
+        clock = datetime.now(EAT)
+        today = today or clock.date()
+        if clock.hour < REMINDER_HOUR and today == clock.date(): return 0
+        with connect(path) as db:
+            values = settings(db)
+            if values.get('alert_mode') == 'off': return 0
+            lines, sent = due_reminders(db, today) if values.get('reminders', '1') == '1' else ([], [])
+            monitor = db.execute("SELECT name,last_success FROM sources WHERE kind LIKE 'import_%' AND enabled=1").fetchall()
+        if lines:
+            title = f"{len(lines)} date{'s' if len(lines) != 1 else ''} coming up"
+            ok, message = (sender or send_toast)(title, '\n'.join(lines[:4]) + (f'\n+ {len(lines) - 4} more' if len(lines) > 4 else ''),
+                                                 dashboard_url(values, 'disposals'))
+            if ok:
+                shown += 1
+                with connect(path) as db:
+                    for notice_id, key in sent:
+                        db.execute("UPDATE notices SET reminded=reminded||'|'||? WHERE id=?", (key, notice_id))
+                    record(db, f'{title}. {message}')
+        week_ago = (clock - timedelta(days=MONITOR_EVERY_DAYS)).isoformat()
+        stale = [m['name'] for m in monitor if not m['last_success'] or m['last_success'] < week_ago]
+        if stale and values.get('monitor_reminder_at', '') < week_ago:
+            ok, message = (sender or send_toast)('Time to import Daily Monitor',
+                                                 'Daily Monitor carries many auctions and disposals but blocks automated reading. '
+                                                 'Open Sources & coverage, save its pages and import them.',
+                                                 dashboard_url(values, 'sources'))
+            with connect(path) as db:
+                db.execute("INSERT OR REPLACE INTO settings VALUES ('monitor_reminder_at',?)", (clock.isoformat(timespec='seconds'),))
+            shown += bool(ok)
+    except Exception:
+        log.exception('Reminders failed')
+    return shown

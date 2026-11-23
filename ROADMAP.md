@@ -66,6 +66,12 @@ asset type and place; past disposals & results per disposal; duplicate adverts m
 procurement-law boilerplate no longer mistaken for disposals; robots.txt handling follows
 RFC 9309 (a missing file, e.g. Amazon S3's 403, means no restrictions).
 
+Done 23 Nov (second round): scanned adverts read with Windows OCR; three more disposal
+searches (vehicle auctions, board of survey & scrap, property auctions); hourly eGP
+disposal check; weekly Daily Monitor import reminder; bid tracker; calendar export;
+disposal alerts by asset type and place; date reminders; archive of records over two
+years old.
+
 Next for disposals: court bailiff and bank auction listings, if a public source
 that permits automated reading can be found; URA auctions if its site opens up.
 

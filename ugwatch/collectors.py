@@ -49,6 +49,8 @@ class Client:
     # Waits (seconds) before retrying a network hiccup: a dropped connection, timeout,
     # failed address lookup or a 502/503/504 "try again later" answer.
     retry_waits=(2,6)
+    # Longest a single download may take; the per-read timeout alone lets a trickling download run on.
+    max_seconds=90
 
     def _retry(self,call,is_bad=lambda result:False):
         for wait in (*self.retry_waits,None):
@@ -90,8 +92,9 @@ class Client:
                     url=urljoin(url,r.headers['Location'])
                     if r.status_code in (301,302,303): method='GET'; data=None
                     continue
-                chunks=[]; size=0
+                chunks=[]; size=0; deadline=time.monotonic()+self.max_seconds
                 for chunk in r.iter_content(65536):
+                    if time.monotonic()>deadline: raise requests.Timeout('The download took too long.')
                     size+=len(chunk)
                     if size>MAX_BYTES: raise ValueError('Source exceeds the 6 MB download limit.')
                     chunks.append(chunk)

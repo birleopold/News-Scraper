@@ -43,11 +43,13 @@ if (!STALE) {
     catch (e) { toast(e.message); $('#fetch').disabled = false; }
   };
   $('#filters').onsubmit = e => e.preventDefault();
-  for (const id of ['status', 'source', 'sort', 'from', 'to', 'disposal-asset', 'disposal-place']) $('#' + id).onchange = reloadFeed;
+  for (const id of ['status', 'source', 'sort', 'from', 'to', 'disposal-asset', 'disposal-place', 'disposal-pipeline']) $('#' + id).onchange = reloadFeed;
+  $('#show-archive').onclick = () => { state.archived = true; reloadFeed(); };
   $('#search').oninput = () => { clearTimeout(searchTimer); searchTimer = setTimeout(reloadFeed, 300); };
   $('#show-hidden').onclick = () => { $('#status').value = ''; reloadFeed(); };
   $('#clear-filters').onclick = () => {
-    for (const id of ['search', 'source', 'from', 'to', 'disposal-asset', 'disposal-place']) $('#' + id).value = '';
+    for (const id of ['search', 'source', 'from', 'to', 'disposal-asset', 'disposal-place', 'disposal-pipeline']) $('#' + id).value = '';
+    state.archived = false;
     $('#status').value = state.view === 'disposals' ? '' : 'current';
     $('#sort').value = 'latest'; state.discovered = '';
     reloadFeed();
@@ -60,6 +62,6 @@ if (!STALE) {
 
   // Alerts open /?view=disposals or /?view=matches; honour it on first load.
   const startView = new URLSearchParams(location.search).get('view');
-  if (['matches', 'saved', 'unread', 'jobs', 'disposals'].includes(startView)) navigate(startView).catch(() => {});
+  if (['matches', 'saved', 'unread', 'jobs', 'disposals', 'sources'].includes(startView)) navigate(startView).catch(() => {});
   refresh().catch(e => { toast(e.message); $('#cards').innerHTML = '<div class="empty">Could not load your workspace. Check the Python server and reload.</div>'; });
 }

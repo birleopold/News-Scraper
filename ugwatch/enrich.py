@@ -7,6 +7,7 @@ few PDFs are read per fetch, each once, through the normal polite client.
 import json
 import logging
 import re
+import time
 from datetime import datetime
 from io import BytesIO
 
@@ -16,11 +17,13 @@ from pypdf import PdfReader
 
 from .classify import ADDRESS, ASSET_DISPOSAL, BOILERPLATE, asset_types, category, is_asset_disposal, places
 from .collectors import DATE_RX, Client, TemporaryError, clean, extract_deadline
+from . import ocr
 from .db import EAT, connect
 
 log = logging.getLogger(__name__)
 PDF_PAGES = 5      # adverts and the key facts of bidding documents are on the first pages
 PER_RUN = 15
+BUDGET_SECONDS = 120  # per run, so a slow connection never holds up fetching
 GENERIC_TITLE = re.compile(r'^(?:abridged |detailed )?(?:public notice|notice|tender notice|bid notice|bid announcement|'
                            r'invitation to (?:tender|bid)|procurement notice|scheduled auction.*|auction invitation)\b.{0,40}$',re.I)
 MONEY = re.compile(r'(?:UGX|U\.?\s?Shs?\.?|Shs\.?|Ushs\.?)\s?([\d][\d,]{3,}(?:\.\d+)?)(?:\s?(?:/=|=/))?',re.I)
@@ -112,28 +115,44 @@ def reclassify(db):
 def candidates(db, limit):
     """Disposals with an unread PDF first, then vaguely titled newspaper notices that may hide one."""
     rows = db.execute("""SELECT n.id,n.title,n.url,n.pdf_url,n.category,n.deadline,n.deadline_origin,n.excerpt FROM notices n
-                         WHERE n.details IS NULL AND n.category!='Job'
+                         WHERE (n.details IS NULL OR (n.details LIKE '%"scanned": true%' AND n.details NOT LIKE '%"ocr_tried"%'))
+                           AND n.category!='Job'
                            AND (n.pdf_url IS NOT NULL OR lower(n.url) LIKE '%.pdf')
                          ORDER BY n.category='Auction' DESC, n.first_seen DESC LIMIT 400""").fetchall()
     picked = [r for r in rows if r['category'] == 'Auction' or GENERIC_TITLE.match(r['title'])]
     return picked[:limit]
 
 
-def enrich(path, client=None, limit=PER_RUN):
-    """Read up to `limit` advert PDFs. Never raises: enrichment must not break fetching."""
+def enrich(path, client=None, limit=PER_RUN, budget=BUDGET_SECONDS):
+    """Read up to `limit` advert PDFs within `budget` seconds; the rest wait for the next run
+    (at most an hour away). Never raises: enrichment must not hold up or break fetching."""
     own = client is None
-    client = client or Client()
+    if own:
+        client = Client()
+        client.retry_waits = ()   # one attempt per PDF: a slow connection must not hold the run
+        client.max_seconds = 30
     done = 0
+    stop_at = time.monotonic() + budget
     try:
         with connect(path) as db:
             rows = [dict(r) for r in candidates(db, limit)]
         for row in rows:
+            if time.monotonic() > stop_at:
+                log.info('Advert PDFs: time budget used; %s left for the next run', len(rows) - done)
+                break
             url = row['pdf_url'] or row['url']
             details = {'source_pdf': url}
             try:
-                text = pdf_text(client.get(url).content)
+                content = client.get(url).content
+                text = pdf_text(content)
+                if len(clean(text)) < 80 and ocr.available():
+                    # A picture of the advert: read it with Windows' own text recognition.
+                    details['ocr_tried'] = True
+                    recognized = ocr.ocr_pdf(content)
+                    if ocr.words(recognized) >= 25:
+                        text = recognized; details['ocr'] = True
                 if len(clean(text)) < 80:
-                    details['scanned'] = True    # an image of the advert: open it to read
+                    details['scanned'] = True    # an image that could not be read: open it to read
                 else:
                     details.update(advert_details(text, row['title'])); details['text'] = clean(text)[:4000]
             except (requests.ConnectionError, requests.Timeout, OSError, TemporaryError):

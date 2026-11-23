@@ -15,10 +15,12 @@ const TITLES = {
 function params() {
   const p = new URLSearchParams({view: state.view, category: state.category, page: state.page});
   if (state.discovered) p.set('discovered', state.discovered);
+  if (state.archived) p.set('archived', '1');
   for (const id of ['search', 'status', 'source', 'sort', 'from', 'to']) if ($('#' + id).value) p.set(id === 'search' ? 'q' : id, $('#' + id).value);
   if (state.view === 'disposals') {
     if ($('#disposal-asset').value) p.set('asset', $('#disposal-asset').value);
     if ($('#disposal-place').value) p.set('place', $('#disposal-place').value);
+    if ($('#disposal-pipeline').value) p.set('pipeline', $('#disposal-pipeline').value);
   }
   return p;
 }
@@ -40,6 +42,8 @@ async function loadNotices() {
   const current = $('#status').value === 'current' ? 'current ' : '';
   $('#results-label').textContent = `${data.total.toLocaleString()} ${current}${data.total === 1 ? 'update' : 'updates'}${state.category ? ' in ' + label(state.category).toLowerCase() : ''}`;
   $('#show-hidden').hidden = !data.hidden;
+  $('#show-archive').hidden = !data.archived;
+  $('#show-archive').textContent = data.archived ? `· ${data.archived.toLocaleString()} archived (over 2 years old). Show archive` : '';
   $('#show-hidden').textContent = data.hidden ? `· ${data.hidden.toLocaleString()} closed, older or result ${data.hidden === 1 ? 'record' : 'records'} hidden. Show all` : '';
   const total = state.overview?.stats.total;
   $('#cards').innerHTML = data.items.map(card).join('') || `<div class="empty"><div class="empty-icon">▤</div>
@@ -58,7 +62,7 @@ async function refresh() {
 }
 
 async function navigate(view) {
-  state.view = view; state.page = 1; state.discovered = ''; state.jobsPage = 1;
+  state.view = view; state.page = 1; state.discovered = ''; state.jobsPage = 1; state.archived = false;
   // Saved items and disposals (rare, top priority) show everything; other feeds start on current ones.
   if (!['sources', 'settings', 'jobs'].includes(view)) $('#status').value = ['saved', 'disposals'].includes(view) ? '' : 'current';
   showDisposalFilters(view === 'disposals');
@@ -84,7 +88,7 @@ function showDetail(id) {
       <div><small>First discovered</small>${dateLabel(r.first_seen, true)}</div><div><small>Last seen</small>${dateLabel(r.last_seen, true)}</div>
       <div><small>Source</small>${esc(r.source_name)}</div><div><small>Reference</small>${esc(r.reference || 'Not supplied')}</div></div>
     <p class="fine-print">${esc(r.deadline_evidence || 'No explicit deadline was extracted. Review the original notice.')} ${reviewNote}</p>
-    ${r.category === 'Auction' ? disposalDetail(r) : ''}
+    ${r.category === 'Auction' ? disposalDetail(r) : ''}${trackerForm(r)}
     <div class="detail-actions"><a href="${esc(r.url)}" class="primary" target="_blank" rel="noopener noreferrer">${r.source_kind === 'search' ? 'Open discovery link' : 'Read original notice'}</a>
       <button class="secondary" id="mark-read">${r.read ? 'Mark unread' : 'Mark as read'}</button></div>
     <form class="detail-form" id="annotation-form">
@@ -95,6 +99,7 @@ function showDetail(id) {
       <p class="fine-print">A reviewed future date counts as upcoming. Saving a blank deadline keeps the notice in Needs review.</p></form>`;
   $('#detail').showModal();
   if (r.category === 'Auction') loadHistory(id);
+  wireTracker(id);
   $('#mark-read').onclick = async () => {
     try { await api('/api/notices/' + id, 'PATCH', {read: !r.read}); $('#detail').close(); await refresh(); } catch (e) { toast(e.message); }
   };
